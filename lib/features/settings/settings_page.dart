@@ -7,6 +7,7 @@ import '../../core/widgets/common.dart';
 import '../../data/source_repository.dart';
 import '../../domain/iptv_source.dart';
 import '../../state/sources_state.dart';
+import '../update/update_service.dart';
 
 class SettingsPage extends ConsumerWidget {
   const SettingsPage({super.key});
@@ -52,7 +53,7 @@ class SettingsPage extends ConsumerWidget {
         const _Section(
           title: 'À propos',
           children: [
-            Text('ZELVORA TV · version 0.2.0', style: TextStyle(color: AppColors.textSecondary)),
+            Text('ZELVORA TV · version $kAppVersion', style: TextStyle(color: AppColors.textSecondary)),
           ],
         ),
       ],

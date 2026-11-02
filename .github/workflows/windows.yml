@@ -6,6 +6,9 @@ on:
   pull_request:
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   test:
     runs-on: ubuntu-latest
@@ -28,15 +31,31 @@ jobs:
         with:
           channel: stable
           cache: true
+      - name: Version
+        id: v
+        shell: pwsh
+        run: |
+          $version = (Select-String -Path pubspec.yaml -Pattern '^version:\s*([0-9.]+)').Matches[0].Groups[1].Value
+          "version=$version" >> $env:GITHUB_OUTPUT
       - run: flutter pub get
-      - run: flutter build windows --release
+      - run: flutter build windows --release --dart-define=APP_VERSION=${{ steps.v.outputs.version }}
       - name: Installer Inno Setup
         shell: pwsh
         run: |
           if (-not (Test-Path "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe")) { choco install innosetup -y --no-progress }
-          $version = (Select-String -Path pubspec.yaml -Pattern '^version:\s*([0-9.]+)').Matches[0].Groups[1].Value
-          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" "/DAppVersion=$version" installer\zelvora_tv.iss
+          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" "/DAppVersion=${{ steps.v.outputs.version }}" installer\zelvora_tv.iss
       - uses: actions/upload-artifact@v4
         with:
           name: ZELVORA-TV-Windows-installeur
           path: dist/*.exe
+      # Publication de la version (mises à jour automatiques) : uniquement sur main.
+      - name: Publier la release
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $tag = "v${{ steps.v.outputs.version }}"
+          gh release view $tag 2>$null
+          if ($LASTEXITCODE -eq 0) { Write-Host "La release $tag existe déjà."; exit 0 }
+          gh release create $tag (Get-ChildItem dist\*.exe).FullName --title "ZELVORA TV $tag" --notes "Version ${{ steps.v.outputs.version }}"
