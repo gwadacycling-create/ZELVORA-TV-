@@ -25,6 +25,7 @@ class PlayerPage extends ConsumerStatefulWidget {
 
 class _PlayerPageState extends ConsumerState<PlayerPage> {
   bool _overlay = true;
+  bool _diag = false;
   Timer? _hide;
   late final bool _native = ref.read(nativeFullscreenProvider);
 
@@ -80,6 +81,7 @@ class _PlayerPageState extends ConsumerState<PlayerPage> {
         const SingleActivator(LogicalKeyboardKey.arrowDown): () => _zap(1),
         const SingleActivator(LogicalKeyboardKey.channelUp): () => _zap(-1),
         const SingleActivator(LogicalKeyboardKey.channelDown): () => _zap(1),
+        const SingleActivator(LogicalKeyboardKey.keyI): () => setState(() => _diag = !_diag),
         const SingleActivator(LogicalKeyboardKey.space): () {
           playback.togglePause();
           _bump();
@@ -108,10 +110,17 @@ class _PlayerPageState extends ConsumerState<PlayerPage> {
                   duration: const Duration(milliseconds: 250),
                   child: IgnorePointer(
                     ignoring: !_overlay,
-                    child: _Overlay(title: channel?.name ?? '', group: channel?.group ?? '', onClose: _close, onZap: _zap),
+                    child: _Overlay(
+                      title: channel?.name ?? '',
+                      group: channel?.group ?? '',
+                      onClose: _close,
+                      onZap: _zap,
+                      onInfo: () => setState(() => _diag = !_diag),
+                    ),
                   ),
                 ),
                 const _PlaybackStatus(),
+                if (_diag) Positioned(top: 100, right: 32, child: DiagnosticsPanel(playback: playback)),
               ],
             ),
           ),
@@ -122,11 +131,12 @@ class _PlayerPageState extends ConsumerState<PlayerPage> {
 }
 
 class _Overlay extends StatelessWidget {
-  const _Overlay({required this.title, required this.group, required this.onClose, required this.onZap});
+  const _Overlay({required this.title, required this.group, required this.onClose, required this.onZap, required this.onInfo});
   final String title;
   final String group;
   final VoidCallback onClose;
   final void Function(int) onZap;
+  final VoidCallback onInfo;
 
   @override
   Widget build(BuildContext context) {
@@ -165,8 +175,11 @@ class _Overlay extends StatelessWidget {
               const SizedBox(width: 8),
               IconButton.filledTonal(onPressed: () => onZap(1), icon: const Icon(Icons.keyboard_arrow_down_rounded), tooltip: 'Chaîne suivante'),
               const SizedBox(width: 16),
-              const Text('↑ ↓ changer de chaîne · Espace pause · Échap quitter',
-                  style: TextStyle(color: AppColors.textSecondary)),
+              const Expanded(
+                child: Text('↑ ↓ changer de chaîne · Espace pause · I infos techniques · Échap quitter',
+                    style: TextStyle(color: AppColors.textSecondary)),
+              ),
+              IconButton.filledTonal(onPressed: onInfo, icon: const Icon(Icons.info_outline_rounded), tooltip: 'Infos techniques (I)'),
             ]),
           ],
         ),
@@ -242,5 +255,68 @@ class _PlaybackStatusState extends State<PlaybackStatus> {
       return const Center(child: CircularProgressIndicator(color: AppColors.accent));
     }
     return const SizedBox.shrink();
+  }
+}
+
+/// Panneau « Infos techniques » : aide à comprendre pourquoi une chaîne ne s'affiche pas.
+class DiagnosticsPanel extends StatefulWidget {
+  const DiagnosticsPanel({super.key, required this.playback});
+  final Playback playback;
+
+  @override
+  State<DiagnosticsPanel> createState() => _DiagnosticsPanelState();
+}
+
+class _DiagnosticsPanelState extends State<DiagnosticsPanel> {
+  Map<String, String> _data = const {};
+  Timer? _t;
+
+  @override
+  void initState() {
+    super.initState();
+    _refresh();
+    _t = Timer.periodic(const Duration(seconds: 1), (_) => _refresh());
+  }
+
+  Future<void> _refresh() async {
+    final d = await widget.playback.diagnostics();
+    if (mounted) setState(() => _data = d);
+  }
+
+  @override
+  void dispose() {
+    _t?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 440,
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: const Color(0xE6000000),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: AppColors.border),
+      ),
+      child: SelectionArea(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text('Infos techniques', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 16)),
+            const SizedBox(height: 10),
+            for (final e in _data.entries)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 6),
+                child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  SizedBox(width: 140, child: Text(e.key, style: const TextStyle(color: AppColors.textSecondary))),
+                  Expanded(child: Text(e.value)),
+                ]),
+              ),
+          ],
+        ),
+      ),
+    );
   }
 }

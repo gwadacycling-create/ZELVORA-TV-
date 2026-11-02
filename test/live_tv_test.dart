@@ -75,6 +75,15 @@ void main() {
     await tester.sendKeyEvent(LogicalKeyboardKey.space);
     expect(playback.pauses, 1);
 
+    // Infos techniques (touche I).
+    await tester.sendKeyEvent(LogicalKeyboardKey.keyI);
+    await tester.pump();
+    await tester.pump();
+    expect(find.text('Infos techniques'), findsOneWidget);
+    expect(find.text('h264'), findsOneWidget);
+    await tester.sendKeyEvent(LogicalKeyboardKey.keyI);
+    await tester.pump();
+
     // Échap : retour à la liste.
     await tester.sendKeyEvent(LogicalKeyboardKey.escape);
     await tester.pumpAndSettle();
@@ -100,6 +109,17 @@ void main() {
     await addPlaylist(tester, 'https://example.com/inconnue.m3u');
     expect(find.textContaining('introuvable sur le serveur (404)'), findsOneWidget);
     expect(store.data, isEmpty);
+  });
+
+  testWidgets('Mode compatibilité vidéo enregistré', (tester) async {
+    final store = MemorySecureStore();
+    await pumpApp(tester, store: store);
+    await tester.tap(find.text('Réglages').first);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Mode compatibilité vidéo'));
+    await tester.pumpAndSettle();
+    expect(store.data['zelvora.video.compat'], '1');
+    expect(find.textContaining('Redémarrez'), findsOneWidget);
   });
 
   testWidgets('Le bouton Ajouter exige la case de certification', (tester) async {

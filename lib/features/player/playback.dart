@@ -15,16 +15,35 @@ abstract class Playback {
   Widget view({bool controls = false});
   Stream<String> get errors;
   Stream<bool> get buffering;
+
+  /// Informations techniques pour le diagnostic (état, codecs, résolution...).
+  Future<Map<String, String>> diagnostics();
   void dispose();
 }
 
+/// Mode compatibilité vidéo : désactive l'accélération matérielle
+/// (utile si l'image reste noire sur certaines cartes graphiques).
+final videoCompatModeProvider = Provider<bool>((ref) => false);
+const kVideoCompatKey = 'zelvora.video.compat';
+
 class MediaKitPlayback implements Playback {
-  MediaKitPlayback() {
-    _controller = VideoController(_player);
+  MediaKitPlayback({bool compatMode = false}) : _compat = compatMode {
+    _controller = VideoController(
+      _player,
+      configuration: VideoControllerConfiguration(
+        enableHardwareAcceleration: !compatMode,
+        hwdec: compatMode ? 'no' : 'auto-safe',
+      ),
+    );
+    _player.stream.log.listen((l) => _lastLog = '[${l.level}] ${l.prefix}: ${l.text}'.trim());
   }
 
-  final Player _player = Player(configuration: const PlayerConfiguration(title: 'ZELVORA TV'));
+  final bool _compat;
+  final Player _player = Player(
+    configuration: const PlayerConfiguration(title: 'ZELVORA TV', logLevel: MPVLogLevel.warn),
+  );
   late final VideoController _controller;
+  String _lastLog = '';
 
   @override
   Future<void> play(Channel channel) =>
@@ -43,6 +62,32 @@ class MediaKitPlayback implements Playback {
   Stream<bool> get buffering => _player.stream.buffering;
 
   @override
+  Future<Map<String, String>> diagnostics() async {
+    final st = _player.state;
+    Future<String> prop(String name) async {
+      try {
+        final p = _player.platform;
+        if (p is NativePlayer) {
+          final v = await p.getProperty(name);
+          return v.isEmpty ? '—' : v;
+        }
+      } catch (_) {}
+      return '—';
+    }
+
+    return {
+      'État': st.playing ? (st.buffering ? 'Chargement…' : 'Lecture') : 'Arrêté / en attente',
+      'Image': st.width != null && st.width! > 0 ? '${st.width} × ${st.height}' : 'aucune image reçue',
+      'Codec vidéo': await prop('video-codec'),
+      'Codec audio': await prop('audio-codec-name'),
+      'Décodage matériel': _compat ? 'désactivé (mode compatibilité)' : await prop('hwdec-current'),
+      'Sortie vidéo': await prop('current-vo'),
+      'Format': await prop('file-format'),
+      'Dernier message': _lastLog.isEmpty ? '—' : _lastLog,
+    };
+  }
+
+  @override
   Widget view({bool controls = false}) => Video(
         controller: _controller,
         controls: controls ? MaterialDesktopVideoControls : NoVideoControls,
@@ -54,7 +99,7 @@ class MediaKitPlayback implements Playback {
 }
 
 final playbackProvider = Provider<Playback>((ref) {
-  final p = MediaKitPlayback();
+  final p = MediaKitPlayback(compatMode: ref.read(videoCompatModeProvider));
   ref.onDispose(p.dispose);
   return p;
 });

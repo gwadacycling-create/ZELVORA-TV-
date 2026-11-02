@@ -3,9 +3,18 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:media_kit/media_kit.dart';
 
 import 'app.dart';
+import 'data/source_repository.dart';
+import 'features/player/playback.dart';
 
-void main() {
+Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   MediaKit.ensureInitialized();
-  runApp(const ProviderScope(child: ZelvoraApp()));
+  var compat = false;
+  try {
+    compat = await const SystemSecureStore().read(kVideoCompatKey) == '1';
+  } catch (_) {}
+  runApp(ProviderScope(
+    overrides: [videoCompatModeProvider.overrideWithValue(compat)],
+    child: const ZelvoraApp(),
+  ));
 }

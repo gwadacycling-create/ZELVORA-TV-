@@ -4,7 +4,8 @@ import '../data/source_repository.dart';
 import '../domain/channel.dart';
 import '../domain/iptv_source.dart';
 
-final sourceRepositoryProvider = Provider<SourceRepository>((ref) => SourceRepository());
+final secureStoreProvider = Provider<SecureStore>((ref) => const SystemSecureStore());
+final sourceRepositoryProvider = Provider<SourceRepository>((ref) => SourceRepository(store: ref.read(secureStoreProvider)));
 
 /// Liste des sources de l'utilisateur.
 final sourcesProvider = AsyncNotifierProvider<SourcesNotifier, List<IptvSource>>(SourcesNotifier.new);

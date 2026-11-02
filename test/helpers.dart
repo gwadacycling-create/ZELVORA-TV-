@@ -33,6 +33,8 @@ class FakePlayback implements Playback {
   @override
   Stream<bool> get buffering => _buf.stream;
   @override
+  Future<Map<String, String>> diagnostics() async => {'État': 'Lecture', 'Codec vidéo': 'h264'};
+  @override
   void dispose() {}
 }
 
@@ -57,10 +59,12 @@ Future<FakePlayback> pumpApp(WidgetTester tester, {MemorySecureStore? store, htt
   tester.view.devicePixelRatio = 1;
   addTearDown(tester.view.reset);
   final playback = FakePlayback();
+  final st = store ?? MemorySecureStore();
   await tester.pumpWidget(ProviderScope(
     overrides: [
+      secureStoreProvider.overrideWithValue(st),
       sourceRepositoryProvider.overrideWithValue(
-          SourceRepository(store: store ?? MemorySecureStore(), client: client ?? fakeHttp())),
+          SourceRepository(store: st, client: client ?? fakeHttp())),
       playbackProvider.overrideWithValue(playback),
       nativeFullscreenProvider.overrideWithValue(false),
     ],

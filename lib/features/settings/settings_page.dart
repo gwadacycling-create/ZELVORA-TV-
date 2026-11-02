@@ -7,6 +7,7 @@ import '../../core/widgets/common.dart';
 import '../../data/source_repository.dart';
 import '../../domain/iptv_source.dart';
 import '../../state/sources_state.dart';
+import '../player/playback.dart';
 import '../update/update_service.dart';
 
 class SettingsPage extends ConsumerWidget {
@@ -50,6 +51,7 @@ class SettingsPage extends ConsumerWidget {
             ]),
           ],
         ),
+        const _Section(title: 'Lecture vidéo', children: [_CompatSwitch()]),
         const _Section(
           title: 'À propos',
           children: [
@@ -279,14 +281,51 @@ class _Section extends StatelessWidget {
         borderRadius: BorderRadius.circular(16),
         border: Border.all(color: AppColors.border),
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(title, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
-          const SizedBox(height: 12),
-          ...children,
-        ],
+      child: Material(
+        type: MaterialType.transparency,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(title, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
+            const SizedBox(height: 12),
+            ...children,
+          ],
+        ),
       ),
     );
+  }
+}
+
+class _CompatSwitch extends ConsumerStatefulWidget {
+  const _CompatSwitch();
+
+  @override
+  ConsumerState<_CompatSwitch> createState() => _CompatSwitchState();
+}
+
+class _CompatSwitchState extends ConsumerState<_CompatSwitch> {
+  late bool _value = ref.read(videoCompatModeProvider);
+
+  @override
+  Widget build(BuildContext context) {
+    final changed = _value != ref.read(videoCompatModeProvider);
+    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      SwitchListTile(
+        contentPadding: EdgeInsets.zero,
+        value: _value,
+        title: const Text('Mode compatibilité vidéo'),
+        subtitle: const Text(
+          'À activer si le son fonctionne mais que l’image reste noire. '
+          'Désactive l’accélération de la carte graphique.',
+          style: TextStyle(color: AppColors.textSecondary),
+        ),
+        onChanged: (v) async {
+          setState(() => _value = v);
+          await ref.read(secureStoreProvider).write(kVideoCompatKey, v ? '1' : '0');
+        },
+      ),
+      if (changed)
+        const Text('Redémarrez ZELVORA TV pour appliquer ce réglage.', style: TextStyle(color: AppColors.accentSoft)),
+    ]);
   }
 }
