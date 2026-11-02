@@ -18,7 +18,7 @@ ZELVORA TV ne fournit aucun contenu : chaque utilisateur ajoute ses propres sour
 |---|---|---|
 | 1 | Thème, menu latéral, écrans de base, installeur Windows | Fait |
 | 2 | Playlists M3U/M3U8 + TV en direct + lecteur vidéo | Fait |
-| 3 | Xtream Codes | À venir |
+| 3 | Xtream Codes | Fait |
 | 4 | Guide TV (EPG) | À venir |
 | 5 | Films et séries | À venir |
 | 6 | Favoris, historique, recherche | À venir |

@@ -1,6 +1,6 @@
 import 'dart:convert';
 
-enum SourceKind { m3uUrl, m3uFile }
+enum SourceKind { m3uUrl, m3uFile, xtream }
 
 /// Une source ajoutée par l'utilisateur. Stockée chiffrée (voir SourceRepository).
 class IptvSource {
@@ -10,6 +10,8 @@ class IptvSource {
     required this.kind,
     required this.location,
     required this.addedAt,
+    this.username,
+    this.password,
   });
 
   final String id;
@@ -21,12 +23,18 @@ class IptvSource {
   final String location;
   final DateTime addedAt;
 
+  /// Compte Xtream Codes (null pour les playlists M3U).
+  final String? username;
+  final String? password;
+
   Map<String, dynamic> toJson() => {
         'id': id,
         'name': name,
         'kind': kind.name,
         'location': location,
         'addedAt': addedAt.toIso8601String(),
+        if (username != null) 'username': username,
+        if (password != null) 'password': password,
       };
 
   factory IptvSource.fromJson(Map<String, dynamic> j) => IptvSource(
@@ -35,6 +43,8 @@ class IptvSource {
         kind: SourceKind.values.byName(j['kind'] as String),
         location: j['location'] as String,
         addedAt: DateTime.parse(j['addedAt'] as String),
+        username: j['username'] as String?,
+        password: j['password'] as String?,
       );
 
   static String encodeList(List<IptvSource> list) => jsonEncode([for (final s in list) s.toJson()]);
@@ -50,7 +60,7 @@ class IptvSource {
       final parts = location.split(RegExp(r'[\\/]'));
       return parts.isEmpty ? location : parts.last;
     }
-    final uri = Uri.tryParse(location);
+    final uri = Uri.tryParse(location.contains('://') ? location : 'http://$location');
     return uri == null || uri.host.isEmpty ? 'Lien' : uri.host;
   }
 }

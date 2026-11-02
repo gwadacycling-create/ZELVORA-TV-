@@ -44,9 +44,7 @@ class SettingsPage extends ConsumerWidget {
               _SourceButton(
                 icon: Icons.dns_rounded,
                 label: 'Compte Xtream Codes',
-                onPressed: () => ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Les comptes Xtream Codes arrivent à la prochaine étape.')),
-                ),
+                onPressed: () => showDialog(context: context, builder: (_) => const AddXtreamDialog()),
               ),
             ]),
           ],
@@ -74,11 +72,17 @@ class _SourceTile extends ConsumerWidget {
       margin: const EdgeInsets.only(bottom: 10),
       decoration: BoxDecoration(color: AppColors.surfaceHigh, borderRadius: BorderRadius.circular(12)),
       child: ListTile(
-        leading: Icon(source.kind == SourceKind.m3uFile ? Icons.insert_drive_file_rounded : Icons.link_rounded,
+        leading: Icon(
+            switch (source.kind) {
+              SourceKind.m3uFile => Icons.insert_drive_file_rounded,
+              SourceKind.m3uUrl => Icons.link_rounded,
+              SourceKind.xtream => Icons.dns_rounded,
+            },
             color: AppColors.accent),
         title: Text(source.name),
         subtitle: Text(
-          'M3U · ${source.displayLocation}${count != null ? ' · $count chaînes' : ''}',
+          '${source.kind == SourceKind.xtream ? 'Xtream Codes' : 'M3U'} · ${source.displayLocation}'
+          '${count != null ? ' · $count chaînes' : ''}',
           style: const TextStyle(color: AppColors.textSecondary),
         ),
         trailing: IconButton(
@@ -240,6 +244,126 @@ class _AddM3uDialogState extends ConsumerState<AddM3uDialog> {
           child: _busy
               ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.black))
               : const Text('Ajouter'),
+        ),
+      ],
+    );
+  }
+}
+
+/// Fenêtre d'ajout d'un compte Xtream Codes (serveur, identifiant, mot de passe).
+class AddXtreamDialog extends ConsumerStatefulWidget {
+  const AddXtreamDialog({super.key});
+
+  @override
+  ConsumerState<AddXtreamDialog> createState() => _AddXtreamDialogState();
+}
+
+class _AddXtreamDialogState extends ConsumerState<AddXtreamDialog> {
+  final _name = TextEditingController();
+  final _server = TextEditingController();
+  final _user = TextEditingController();
+  final _pass = TextEditingController();
+  bool _legal = false;
+  bool _hidePass = true;
+  bool _busy = false;
+  String? _error;
+
+  @override
+  void dispose() {
+    for (final c in [_name, _server, _user, _pass]) {
+      c.dispose();
+    }
+    super.dispose();
+  }
+
+  Future<void> _submit() async {
+    if (_server.text.trim().isEmpty || _user.text.trim().isEmpty || _pass.text.isEmpty) {
+      setState(() => _error = 'Renseignez le serveur, l’identifiant et le mot de passe.');
+      return;
+    }
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    try {
+      final n = await ref.read(sourcesProvider.notifier).add(
+            name: _name.text,
+            kind: SourceKind.xtream,
+            location: _server.text,
+            username: _user.text,
+            password: _pass.text,
+          );
+      if (!mounted) return;
+      Navigator.pop(context);
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Compte Xtream ajouté : $n chaînes.')));
+    } on SourceException catch (e) {
+      setState(() => _error = e.message);
+    } catch (_) {
+      setState(() => _error = 'Une erreur inattendue est survenue.');
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      backgroundColor: AppColors.surface,
+      title: const Text('Ajouter un compte Xtream Codes'),
+      content: SizedBox(
+        width: 520,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            TextField(controller: _name, autofocus: true, decoration: const InputDecoration(labelText: 'Nom (ex. : Mon abonnement)')),
+            const SizedBox(height: 8),
+            TextField(
+              key: const Key('xt-server'),
+              controller: _server,
+              keyboardType: TextInputType.url,
+              decoration: const InputDecoration(labelText: 'Adresse du serveur (ex. : http://serveur.com:8080)'),
+            ),
+            const SizedBox(height: 8),
+            TextField(key: const Key('xt-user'), controller: _user, decoration: const InputDecoration(labelText: 'Identifiant')),
+            const SizedBox(height: 8),
+            TextField(
+              key: const Key('xt-pass'),
+              controller: _pass,
+              obscureText: _hidePass,
+              decoration: InputDecoration(
+                labelText: 'Mot de passe',
+                suffixIcon: IconButton(
+                  tooltip: _hidePass ? 'Afficher' : 'Masquer',
+                  icon: Icon(_hidePass ? Icons.visibility_rounded : Icons.visibility_off_rounded),
+                  onPressed: () => setState(() => _hidePass = !_hidePass),
+                ),
+              ),
+              onSubmitted: (_) => _legal && !_busy ? _submit() : null,
+            ),
+            const SizedBox(height: 12),
+            CheckboxListTile(
+              contentPadding: EdgeInsets.zero,
+              value: _legal,
+              onChanged: (v) => setState(() => _legal = v ?? false),
+              controlAffinity: ListTileControlAffinity.leading,
+              title: const Text('Je certifie avoir le droit d’accéder à ce service.', style: TextStyle(fontSize: 14)),
+            ),
+            if (_error != null)
+              Padding(
+                padding: const EdgeInsets.only(top: 4),
+                child: Text(_error!, style: const TextStyle(color: AppColors.accentSoft)),
+              ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(onPressed: _busy ? null : () => Navigator.pop(context), child: const Text('Annuler')),
+        FilledButton(
+          onPressed: _legal && !_busy ? _submit : null,
+          child: _busy
+              ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.black))
+              : const Text('Se connecter'),
         ),
       ],
     );
