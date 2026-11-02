@@ -37,7 +37,7 @@ void main() {
     expect(find.text('Info Test'), findsOneWidget);
 
     // Filtre par catégorie.
-    await tester.tap(find.widgetWithText(ListTile, 'Info').first);
+    await tester.tap(find.text('Info').first);
     await tester.pumpAndSettle();
     expect(find.text('Chaîne Démo 1'), findsNothing);
     expect(find.text('Info Test'), findsOneWidget);
@@ -56,7 +56,7 @@ void main() {
     await tester.tap(find.text('Chaîne Démo 1'));
     await tester.pumpAndSettle();
     expect(playback.played.single.name, 'Chaîne Démo 1');
-    expect(find.text('Plein écran'), findsOneWidget);
+    expect(find.text('Regarder'), findsOneWidget);
 
     // 2e clic : plein écran.
     await tester.tap(find.text('Chaîne Démo 1').first);

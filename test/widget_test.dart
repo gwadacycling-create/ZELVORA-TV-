@@ -17,7 +17,7 @@ void main() {
     await pumpApp(tester);
     const expected = {
       'TV en direct': 'Aucune chaîne pour le moment',
-      'Guide TV': 'Guide TV',
+      'Guide TV': 'Consultez le programme TV, naviguez entre les chaînes et ne manquez rien de vos émissions.',
       'Films': 'Aucun film pour le moment',
       'Séries': 'Aucune série pour le moment',
       'Favoris': 'Aucun favori',
