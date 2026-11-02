@@ -1,0 +1,116 @@
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+
+import '../data/source_repository.dart';
+import '../domain/channel.dart';
+import '../domain/iptv_source.dart';
+
+final sourceRepositoryProvider = Provider<SourceRepository>((ref) => SourceRepository());
+
+/// Liste des sources de l'utilisateur.
+final sourcesProvider = AsyncNotifierProvider<SourcesNotifier, List<IptvSource>>(SourcesNotifier.new);
+
+class SourcesNotifier extends AsyncNotifier<List<IptvSource>> {
+  @override
+  Future<List<IptvSource>> build() => ref.read(sourceRepositoryProvider).loadSources();
+
+  /// Vérifie la source (téléchargement + lecture) avant de l'enregistrer.
+  /// Lève [SourceException] avec un message clair en cas de problème.
+  Future<int> add({required String name, required SourceKind kind, required String location}) async {
+    final repo = ref.read(sourceRepositoryProvider);
+    final source = IptvSource(
+      id: DateTime.now().microsecondsSinceEpoch.toRadixString(36),
+      name: name.trim().isEmpty ? 'Ma playlist' : name.trim(),
+      kind: kind,
+      location: location.trim(),
+      addedAt: DateTime.now(),
+    );
+    final channels = await repo.fetchChannels(source);
+    ref.read(channelCacheProvider)[source.id] = channels;
+    final list = [...(state.value ?? await future), source];
+    await repo.saveSources(list);
+    state = AsyncData(list);
+    return channels.length;
+  }
+
+  Future<void> remove(String id) async {
+    final list = [...(state.value ?? const <IptvSource>[])]..removeWhere((s) => s.id == id);
+    await ref.read(sourceRepositoryProvider).saveSources(list);
+    ref.read(channelCacheProvider).remove(id);
+    state = AsyncData(list);
+  }
+
+  /// Recharge les chaînes de toutes les sources.
+  void refresh() {
+    ref.read(channelCacheProvider).clear();
+    ref.invalidate(channelsProvider);
+  }
+}
+
+/// Chaînes gardées en mémoire uniquement (jamais écrites sur le disque).
+final channelCacheProvider = Provider<Map<String, List<Channel>>>((ref) => {});
+
+class ChannelsData {
+  const ChannelsData(this.channels, this.errors);
+  final List<Channel> channels;
+
+  /// Nom de la source -> message d'erreur.
+  final Map<String, String> errors;
+
+  List<String> get categories {
+    final seen = <String>{};
+    for (final c in channels) {
+      seen.add(c.group.isEmpty ? 'Sans catégorie' : c.group);
+    }
+    return seen.toList();
+  }
+}
+
+final channelsProvider = FutureProvider<ChannelsData>((ref) async {
+  final sources = await ref.watch(sourcesProvider.future);
+  final repo = ref.read(sourceRepositoryProvider);
+  final cache = ref.read(channelCacheProvider);
+  final all = <Channel>[];
+  final errors = <String, String>{};
+  await Future.wait(sources.map((s) async {
+    if (cache.containsKey(s.id)) return;
+    try {
+      cache[s.id] = await repo.fetchChannels(s);
+    } on SourceException catch (e) {
+      errors[s.name] = e.message;
+    }
+  }));
+  for (final s in sources) {
+    all.addAll(cache[s.id] ?? const []);
+  }
+  return ChannelsData(all, errors);
+});
+
+/// Filtre de l'écran TV en direct.
+class LiveFilter {
+  const LiveFilter({this.category, this.query = ''});
+  final String? category; // null = toutes
+  final String query;
+}
+
+final liveFilterProvider = NotifierProvider<LiveFilterNotifier, LiveFilter>(LiveFilterNotifier.new);
+
+class LiveFilterNotifier extends Notifier<LiveFilter> {
+  @override
+  LiveFilter build() => const LiveFilter();
+  void setCategory(String? c) => state = LiveFilter(category: c, query: state.query);
+  void setQuery(String q) => state = LiveFilter(category: state.category, query: q);
+}
+
+/// Chaînes visibles selon la catégorie et la recherche.
+final visibleChannelsProvider = Provider<List<Channel>>((ref) {
+  final data = ref.watch(channelsProvider).value;
+  if (data == null) return const [];
+  final f = ref.watch(liveFilterProvider);
+  final q = f.query.trim().toLowerCase();
+  return data.channels.where((c) {
+    final g = c.group.isEmpty ? 'Sans catégorie' : c.group;
+    if (f.category != null && g != f.category) return false;
+    if (q.isNotEmpty && !c.name.toLowerCase().contains(q)) return false;
+    return true;
+  }).toList(growable: false);
+});

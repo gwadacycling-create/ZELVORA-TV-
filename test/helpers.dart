@@ -1,0 +1,71 @@
+import 'dart:async';
+import 'dart:convert';
+
+import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:http/http.dart' as http;
+import 'package:http/testing.dart';
+import 'package:zelvora_tv/app.dart';
+import 'package:zelvora_tv/data/source_repository.dart';
+import 'package:zelvora_tv/domain/channel.dart';
+import 'package:zelvora_tv/features/player/playback.dart';
+import 'package:zelvora_tv/features/player/player_page.dart';
+import 'package:zelvora_tv/state/sources_state.dart';
+
+/// Lecteur factice : enregistre les chaînes demandées.
+class FakePlayback implements Playback {
+  final played = <Channel>[];
+  int pauses = 0;
+  final _err = StreamController<String>.broadcast();
+  final _buf = StreamController<bool>.broadcast();
+
+  @override
+  Future<void> play(Channel channel) async => played.add(channel);
+  @override
+  Future<void> togglePause() async => pauses++;
+  @override
+  Future<void> stop() async {}
+  @override
+  Widget view({bool controls = false}) => const ColoredBox(color: Colors.black, child: SizedBox.expand());
+  @override
+  Stream<String> get errors => _err.stream;
+  @override
+  Stream<bool> get buffering => _buf.stream;
+  @override
+  void dispose() {}
+}
+
+const samplePlaylist = '''#EXTM3U
+#EXTINF:-1 tvg-id="demo1" tvg-logo="" group-title="Démo",Chaîne Démo 1
+https://example.com/live/1.m3u8
+#EXTINF:-1 tvg-id="demo2" group-title="Démo",Chaîne Démo 2
+https://example.com/live/2.m3u8
+#EXTINF:-1 group-title="Info",Info Test
+https://example.com/live/3.ts
+''';
+
+http.Client fakeHttp([String body = samplePlaylist]) => MockClient((req) async {
+      if (req.url.host == 'example.com' && req.url.path == '/playlist.m3u') {
+        return http.Response.bytes(utf8.encode(body), 200);
+      }
+      return http.Response('not found', 404);
+    });
+
+Future<FakePlayback> pumpApp(WidgetTester tester, {MemorySecureStore? store, http.Client? client}) async {
+  tester.view.physicalSize = const Size(1600, 1000);
+  tester.view.devicePixelRatio = 1;
+  addTearDown(tester.view.reset);
+  final playback = FakePlayback();
+  await tester.pumpWidget(ProviderScope(
+    overrides: [
+      sourceRepositoryProvider.overrideWithValue(
+          SourceRepository(store: store ?? MemorySecureStore(), client: client ?? fakeHttp())),
+      playbackProvider.overrideWithValue(playback),
+      nativeFullscreenProvider.overrideWithValue(false),
+    ],
+    child: const ZelvoraApp(),
+  ));
+  await tester.pumpAndSettle();
+  return playback;
+}
