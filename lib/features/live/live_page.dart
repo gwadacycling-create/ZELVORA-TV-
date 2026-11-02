@@ -7,6 +7,7 @@ import '../../core/widgets/channel_tiles.dart';
 import '../../core/widgets/common.dart';
 import '../../core/widgets/visuals.dart';
 import '../../domain/channel.dart';
+import '../../state/library_state.dart';
 import '../../state/sources_state.dart';
 import '../player/playback.dart';
 import '../player/player_page.dart';
@@ -284,8 +285,9 @@ class _ChannelList extends ConsumerWidget {
 
 /// Carte de chaîne : numéro, logo, nom, badge EN DIRECT.
 class ChannelTile extends StatefulWidget {
-  const ChannelTile({super.key, required this.channel, required this.number, required this.playing, required this.onTap});
+  const ChannelTile({super.key, required this.channel, required this.number, required this.playing, required this.onTap, this.subtitle});
   final Channel channel;
+  final String? subtitle;
   final int number;
   final bool playing;
   final VoidCallback onTap;
@@ -326,12 +328,12 @@ class _ChannelTileState extends State<ChannelTile> {
           Expanded(
             child: Column(mainAxisAlignment: MainAxisAlignment.center, crossAxisAlignment: CrossAxisAlignment.start, children: [
               Text(c.name, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
-              if (c.group.isNotEmpty)
-                Text(c.group,
+              if ((widget.subtitle ?? c.group).isNotEmpty)
+                Text(widget.subtitle ?? c.group,
                     maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: AppColors.textSecondary, fontSize: 13)),
             ]),
           ),
-          const SizedBox(width: 6),
+          FavoriteButton(channel: c, size: 20),
           widget.playing ? const Icon(Icons.graphic_eq_rounded, color: AppColors.accent) : const LiveBadge(small: true),
         ]),
       ),
