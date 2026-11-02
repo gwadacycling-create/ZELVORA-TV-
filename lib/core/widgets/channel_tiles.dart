@@ -17,7 +17,14 @@ class ChannelLogo extends StatelessWidget {
     final fallback = Icon(fallbackIcon, color: Colors.white, size: size * 0.55);
     final img = url == null
         ? fallback
-        : Image.network(url!, fit: BoxFit.contain, errorBuilder: (_, _, _) => fallback);
+        : Image.network(
+            url!,
+            fit: BoxFit.contain,
+            // Logo décodé à sa taille d'affichage (et non en pleine résolution) :
+            // moins de mémoire, défilement plus fluide.
+            cacheWidth: (size * MediaQuery.devicePixelRatioOf(context)).ceil(),
+            errorBuilder: (_, _, _) => fallback,
+          );
     if (!boxed) return SizedBox(width: size, height: size, child: img);
     return Container(
       width: size,

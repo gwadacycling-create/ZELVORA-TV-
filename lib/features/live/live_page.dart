@@ -140,11 +140,6 @@ class _Categories extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final selected = ref.watch(liveFilterProvider).category;
     final cats = data.categories;
-    final counts = <String, int>{};
-    for (final c in data.channels) {
-      final g = c.group.isEmpty ? 'Sans catégorie' : c.group;
-      counts[g] = (counts[g] ?? 0) + 1;
-    }
     return Material(
       type: MaterialType.transparency,
       child: ListView.separated(
@@ -156,7 +151,7 @@ class _Categories extends ConsumerWidget {
           return _CategoryCard(
             label: cat ?? 'Toutes les chaînes',
             icon: cat == null ? Icons.grid_view_rounded : categoryIcon(cat),
-            count: cat == null ? data.channels.length : counts[cat] ?? 0,
+            count: cat == null ? data.channels.length : data.byCategory[cat]?.length ?? 0,
             selected: cat == selected,
             onTap: () => ref.read(liveFilterProvider.notifier).setCategory(cat),
           );

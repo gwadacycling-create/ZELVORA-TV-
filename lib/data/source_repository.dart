@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:http/http.dart' as http;
 
+import '../core/background.dart';
 import '../domain/channel.dart';
 import '../domain/iptv_source.dart';
 import 'm3u_parser.dart';
@@ -83,7 +84,7 @@ class SourceRepository {
   Future<void> saveSources(List<IptvSource> sources) => _store.write(_key, IptvSource.encodeList(sources));
 
   Future<List<Channel>> fetchChannels(IptvSource source) async {
-    final String content;
+    final Future<String> Function() content;
     switch (source.kind) {
       case SourceKind.xtream:
         final client = XtreamClient(
@@ -118,22 +119,29 @@ class SourceRepository {
         if (type.startsWith('video/') || type.contains('mpegurl') && _isHlsStream(res.bodyBytes)) {
           return [_singleStream(source)];
         }
-        content = _decode(res.bodyBytes);
         if (_isHlsStream(res.bodyBytes)) return [_singleStream(source)];
+        final bytes = res.bodyBytes;
+        content = () async => _decode(bytes);
       case SourceKind.m3uFile:
+        final String text;
         try {
-          content = await _readFile(source.location);
+          text = await _readFile(source.location);
         } catch (_) {
           throw SourceException('Fichier introuvable ou illisible.');
         }
+        content = () async => text;
     }
-    final epg = M3uParser.epgUrl(content);
+    // Lecture de la playlist en arrière-plan : l'écran reste réactif.
+    final id = source.id;
+    final (epg, channels) = await inBackground(() async {
+      final text = await content();
+      return (M3uParser.epgUrl(text), [for (final c in M3uParser.parse(text)) c.withSource(id)]);
+    });
     if (epg != null) _epgUrls[source.id] = epg;
-    final channels = M3uParser.parse(content);
     if (channels.isEmpty) {
       throw SourceException('Aucune chaîne trouvée : ce n’est pas une playlist M3U valide.');
     }
-    return [for (final c in channels) c.withSource(source.id)];
+    return channels;
   }
 
   /// Lien direct vers un flux HLS (et non une liste de chaînes).

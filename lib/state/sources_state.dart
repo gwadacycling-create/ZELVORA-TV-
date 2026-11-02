@@ -60,7 +60,7 @@ class SourcesNotifier extends AsyncNotifier<List<IptvSource>> {
 final channelCacheProvider = Provider<Map<String, List<Channel>>>((ref) => {});
 
 class ChannelsData {
-  const ChannelsData(this.channels, this.errors, [this.vod = const []]);
+  ChannelsData(this.channels, this.errors, [this.vod = const []]);
   final List<Channel> channels;
 
   /// Films / épisodes trouvés dans les playlists M3U (affichés dans Films).
@@ -69,13 +69,17 @@ class ChannelsData {
   /// Nom de la source -> message d'erreur.
   final Map<String, String> errors;
 
-  List<String> get categories {
-    final seen = <String>{};
+  /// Chaînes rangées par catégorie, calculé une seule fois : changer de
+  /// catégorie est alors instantané, même avec des milliers de chaînes.
+  late final Map<String, List<Channel>> byCategory = () {
+    final m = <String, List<Channel>>{};
     for (final c in channels) {
-      seen.add(c.group.isEmpty ? 'Sans catégorie' : c.group);
+      (m[c.group.isEmpty ? 'Sans catégorie' : c.group] ??= []).add(c);
     }
-    return seen.toList();
-  }
+    return m;
+  }();
+
+  late final List<String> categories = byCategory.keys.toList(growable: false);
 }
 
 final channelsProvider = FutureProvider<ChannelsData>((ref) async {
@@ -125,15 +129,13 @@ final visibleChannelsProvider = Provider<List<Channel>>((ref) {
   if (data == null) return const [];
   final f = ref.watch(liveFilterProvider);
   final q = f.query.trim().toLowerCase();
-  return data.channels.where((c) {
-    final g = c.group.isEmpty ? 'Sans catégorie' : c.group;
-    if (f.category != null && g != f.category) return false;
-    if (q.isNotEmpty && !c.name.toLowerCase().contains(q)) return false;
-    return true;
-  }).toList(growable: false);
+  final base = f.category == null ? data.channels : data.byCategory[f.category] ?? const <Channel>[];
+  if (q.isEmpty) return base;
+  return base.where((c) => c.name.toLowerCase().contains(q)).toList(growable: false);
 });
 
 bool _isVod(String url) {
+  if (!url.contains('/movie/') && !url.contains('/series/')) return false; // cas courant, sans analyse du lien
   final p = Uri.tryParse(url)?.path ?? url;
   return p.contains('/movie/') || p.contains('/series/');
 }
