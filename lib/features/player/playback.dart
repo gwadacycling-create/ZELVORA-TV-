@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:media_kit/media_kit.dart';
@@ -5,6 +7,7 @@ import 'package:media_kit_video/media_kit_video.dart';
 
 import '../../data/source_repository.dart' show kIptvUserAgent;
 import '../../domain/channel.dart';
+import 'reconnect.dart';
 
 /// Lecture vidéo, isolée derrière une interface pour pouvoir être remplacée
 /// (tests, autre moteur) sans toucher aux écrans.
@@ -44,7 +47,18 @@ class MediaKitPlayback implements Playback {
         hwdec: compatMode ? 'no' : 'auto-safe',
       ),
     );
-    _player.stream.log.listen((l) => _lastLog = '[${l.level}] ${l.prefix}: ${l.text}'.trim());
+    _ready = _configure();
+    _player.stream.log.listen((l) => _lastLog = maskUrls('[${l.level}] ${l.prefix}: ${l.text}'.trim()));
+    _player.stream.position.listen(_onPosition);
+    _player.stream.buffering.listen(_buf.add);
+    _player.stream.completed.listen((done) {
+      if (done) _recover('fin du flux envoyée par le serveur');
+    });
+    _player.stream.error.listen((e) {
+      _journal('erreur moteur : ${maskUrls(e)}');
+      if (!_policy.started) _recover('erreur à l\'ouverture');
+    });
+    _watchdog = Timer.periodic(const Duration(seconds: 2), (_) => _check());
   }
 
   final bool _compat;
@@ -52,14 +66,132 @@ class MediaKitPlayback implements Playback {
     configuration: const PlayerConfiguration(title: 'ZELVORA TV', logLevel: MPVLogLevel.warn),
   );
   late final VideoController _controller;
+  late final Future<void> _ready;
+  late final Timer _watchdog;
+  final _err = StreamController<String>.broadcast();
+  final _buf = StreamController<bool>.broadcast();
+  final _policy = ReconnectPolicy();
+  final _log = <String>[];
   String _lastLog = '';
 
-  @override
-  Future<void> play(Channel channel) =>
-      _player.open(Media(channel.url, httpHeaders: {'User-Agent': kIptvUserAgent, ...channel.headers}));
+  Channel? _current;
+  int _session = 0;
+  bool _userPaused = false;
+  bool _reconnecting = false;
+  bool _failed = false;
+  Duration _lastPos = Duration.zero;
+  DateTime _lastProgress = DateTime.now();
+
+  /// Image figée depuis plus de ce délai → reconnexion.
+  static const stallLimit = Duration(seconds: 10);
+
+  /// Délai laissé au premier démarrage d'une chaîne.
+  static const startLimit = Duration(seconds: 20);
+
+  Future<void> _set(String name, String value) async {
+    final p = _player.platform;
+    if (p is NativePlayer) {
+      try {
+        await p.setProperty(name, value);
+      } catch (_) {}
+    }
+  }
+
+  /// Réglages réseau et tampon adaptés au direct (valeurs mpv).
+  Future<void> _configure() async {
+    await _set('network-timeout', '15');
+    await _set('cache', 'yes');
+    await _set('demuxer-max-bytes', '64MiB');
+    await _set('demuxer-max-back-bytes', '16MiB');
+    await _set('demuxer-readahead-secs', '20');
+    await _set('hls-bitrate', 'max');
+  }
+
+  void _journal(String msg) {
+    final t = DateTime.now();
+    String two(int v) => v.toString().padLeft(2, '0');
+    _log.add('${two(t.hour)}:${two(t.minute)}:${two(t.second)} $msg');
+    if (_log.length > 30) _log.removeAt(0);
+    debugPrint('[ZELVORA lecteur] $msg');
+  }
+
+  void _onPosition(Duration p) {
+    final advancing = p > _lastPos && p > Duration.zero;
+    _lastPos = p;
+    if (advancing) {
+      _lastProgress = DateTime.now();
+      if (_current != null && !_reconnecting) {
+        if (!_policy.started) _journal('lecture démarrée');
+        _policy.onProgress(_lastProgress);
+      }
+    }
+  }
+
+  void _check() {
+    if (_current == null || _userPaused || _reconnecting || _failed) return;
+    final limit = _policy.started ? stallLimit : startLimit;
+    if (DateTime.now().difference(_lastProgress) > limit) {
+      _recover(_policy.started ? 'image figée depuis ${limit.inSeconds} s' : 'aucune image après ${limit.inSeconds} s');
+    }
+  }
+
+  Future<void> _recover(String reason) async {
+    final channel = _current;
+    if (channel == null || _reconnecting || _failed || _userPaused) return;
+    final delay = _policy.nextDelay();
+    if (delay == null) {
+      _failed = true;
+      _journal('abandon après ${_policy.total} reconnexion(s) : $reason');
+      _buf.add(false);
+      _err.add(_policy.started
+          ? 'Le serveur IPTV ne répond plus. La chaîne a été coupée plusieurs fois de suite.'
+          : 'Le serveur IPTV ne répond pas pour cette chaîne.');
+      return;
+    }
+    _reconnecting = true;
+    final session = _session;
+    _journal('$reason → reconnexion ${_policy.attempts} dans ${delay.inSeconds} s');
+    _buf.add(true);
+    await Future<void>.delayed(delay);
+    if (session != _session) return;
+    await _open(channel);
+    _lastProgress = DateTime.now();
+    _reconnecting = false;
+  }
+
+  Future<void> _open(Channel channel) async {
+    await _ready;
+    // Flux continus (.ts) : le moteur rouvre lui-même la connexion si le
+    // serveur la coupe. Désactivé pour le HLS, qui gère ses segments.
+    await _set(
+      'stream-lavf-o',
+      isHls(channel.url)
+          ? 'reconnect=1,reconnect_on_network_error=1,reconnect_delay_max=4'
+          : 'reconnect=1,reconnect_streamed=1,reconnect_at_eof=1,reconnect_on_network_error=1,reconnect_delay_max=4',
+    );
+    await _player.open(Media(channel.url, httpHeaders: {'User-Agent': kIptvUserAgent, ...channel.headers}));
+  }
 
   @override
-  Future<void> togglePause() => _player.playOrPause();
+  Future<void> play(Channel channel) {
+    _session++;
+    _current = channel;
+    _policy.reset();
+    _userPaused = false;
+    _reconnecting = false;
+    _failed = false;
+    _lastProgress = DateTime.now();
+    _journal('ouverture de « ${channel.name} » (${isHls(channel.url) ? 'HLS' : 'flux continu'}, ${maskUrls(channel.url)})');
+    return _open(channel);
+  }
+
+  @override
+  Future<void> togglePause() async {
+    final wasPlaying = _player.state.playing;
+    await _player.playOrPause();
+    _userPaused = wasPlaying;
+    if (!wasPlaying) _lastProgress = DateTime.now();
+  }
 
   @override
   Future<void> setVolume(double volume) => _player.setVolume(volume.clamp(0, 100).toDouble());
@@ -71,13 +203,18 @@ class MediaKitPlayback implements Playback {
   Stream<double> get volumeStream => _player.stream.volume;
 
   @override
-  Future<void> stop() => _player.stop();
+  Future<void> stop() {
+    _session++;
+    _current = null;
+    _reconnecting = false;
+    return _player.stop();
+  }
 
   @override
-  Stream<String> get errors => _player.stream.error;
+  Stream<String> get errors => _err.stream;
 
   @override
-  Stream<bool> get buffering => _player.stream.buffering;
+  Stream<bool> get buffering => _buf.stream;
 
   @override
   Future<Map<String, String>> diagnostics() async {
@@ -93,15 +230,27 @@ class MediaKitPlayback implements Playback {
       return '—';
     }
 
+    final cache = await prop('demuxer-cache-duration');
+    final secs = double.tryParse(cache);
     return {
-      'État': st.playing ? (st.buffering ? 'Chargement…' : 'Lecture') : 'Arrêté / en attente',
+      'État': _failed
+          ? 'Arrêté : serveur injoignable'
+          : _reconnecting
+              ? 'Reconnexion en cours…'
+              : st.playing
+                  ? (st.buffering ? 'Chargement…' : 'Lecture')
+                  : 'Arrêté / en attente',
       'Image': st.width != null && st.width! > 0 ? '${st.width} × ${st.height}' : 'aucune image reçue',
       'Codec vidéo': await prop('video-codec'),
       'Codec audio': await prop('audio-codec-name'),
       'Décodage matériel': _compat ? 'désactivé (mode compatibilité)' : await prop('hwdec-current'),
       'Sortie vidéo': await prop('current-vo'),
       'Format': await prop('file-format'),
+      'Mémoire tampon': secs == null ? '—' : '${secs.toStringAsFixed(1)} s',
+      'Images perdues': await prop('frame-drop-count'),
+      'Reconnexions': '${_policy.total}',
       'Dernier message': _lastLog.isEmpty ? '—' : _lastLog,
+      'Journal': _log.isEmpty ? '—' : _log.reversed.take(6).join('\n'),
     };
   }
 
@@ -113,7 +262,14 @@ class MediaKitPlayback implements Playback {
       );
 
   @override
-  void dispose() => _player.dispose();
+  void dispose() {
+    _session++;
+    _current = null;
+    _watchdog.cancel();
+    _player.dispose();
+    _err.close();
+    _buf.close();
+  }
 }
 
 final playbackProvider = Provider<Playback>((ref) {

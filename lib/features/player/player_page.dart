@@ -299,16 +299,18 @@ class _PlaybackStatusState extends State<PlaybackStatus> {
           padding: const EdgeInsets.all(20),
           margin: const EdgeInsets.all(20),
           decoration: BoxDecoration(color: const Color(0xDD000000), borderRadius: BorderRadius.circular(14)),
-          child: const Column(
+          child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(Icons.error_outline_rounded, color: AppColors.accent, size: 36),
-              SizedBox(height: 10),
-              Text('Cette chaîne ne peut pas être lue pour le moment.', textAlign: TextAlign.center),
+              const Icon(Icons.error_outline_rounded, color: AppColors.accent, size: 36),
+              const SizedBox(height: 10),
+              const Text('Cette chaîne ne peut pas être lue pour le moment.', textAlign: TextAlign.center),
               Text(
-                'Le flux est peut-être hors ligne ou indisponible.',
+                _error!.startsWith('Le serveur IPTV')
+                    ? '${_error!} Relancez la chaîne pour réessayer.'
+                    : 'Le flux est peut-être hors ligne ou indisponible.',
                 textAlign: TextAlign.center,
-                style: TextStyle(color: AppColors.textSecondary),
+                style: const TextStyle(color: AppColors.textSecondary),
               ),
             ],
           ),
