@@ -51,9 +51,11 @@ class SettingsPage extends ConsumerWidget {
         ),
         const _Section(title: 'Lecture vidéo', children: [_CompatSwitch()]),
         const _Section(
-          title: 'À propos',
+          title: 'Mise à jour',
           children: [
             Text('ZELVORA TV · version $kAppVersion', style: TextStyle(color: AppColors.textSecondary)),
+            SizedBox(height: 12),
+            UpdateCheck(),
           ],
         ),
       ],
@@ -451,5 +453,78 @@ class _CompatSwitchState extends ConsumerState<_CompatSwitch> {
       if (changed)
         const Text('Redémarrez ZELVORA TV pour appliquer ce réglage.', style: TextStyle(color: AppColors.accentSoft)),
     ]);
+  }
+}
+
+/// Recherche et installation manuelle d'une mise à jour (Réglages).
+class UpdateCheck extends ConsumerStatefulWidget {
+  const UpdateCheck({super.key});
+
+  @override
+  ConsumerState<UpdateCheck> createState() => _UpdateCheckState();
+}
+
+class _UpdateCheckState extends ConsumerState<UpdateCheck> {
+  bool _checking = false;
+  bool _checked = false;
+  UpdateInfo? _found;
+  double? _progress;
+  String? _error;
+
+  Future<void> _check() async {
+    setState(() { _checking = true; _error = null; });
+    final info = await ref.read(updateServiceProvider).check();
+    if (!mounted) return;
+    setState(() { _checking = false; _checked = true; _found = info; });
+  }
+
+  Future<void> _install(UpdateInfo info) async {
+    setState(() { _progress = 0; _error = null; });
+    try {
+      await ref.read(updateServiceProvider).install(info, onProgress: (p) => setState(() => _progress = p));
+    } catch (_) {
+      if (mounted) setState(() { _progress = null; _error = 'La mise à jour a échoué. Réessayez plus tard.'; });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final found = _found;
+    final String status;
+    if (_error != null) {
+      status = _error!;
+    } else if (_progress != null) {
+      status = 'Téléchargement de la version ${found?.version}… ${(_progress! * 100).round()} %';
+    } else if (_checking) {
+      status = 'Recherche en cours…';
+    } else if (found != null) {
+      status = 'Nouvelle version disponible : ${found.version}';
+    } else if (_checked) {
+      status = 'Vous avez la dernière version.';
+    } else {
+      status = 'Les mises à jour s\'installent automatiquement au démarrage.';
+    }
+    return Wrap(
+      spacing: 16,
+      runSpacing: 10,
+      crossAxisAlignment: WrapCrossAlignment.center,
+      children: [
+        if (found != null && _progress == null)
+          FilledButton.icon(
+            key: const Key('update-install'),
+            onPressed: () => _install(found),
+            icon: const Icon(Icons.download_rounded),
+            label: Text('Installer la version ${found.version}'),
+          )
+        else
+          OutlinedButton.icon(
+            key: const Key('update-check'),
+            onPressed: _checking || _progress != null ? null : _check,
+            icon: const Icon(Icons.refresh_rounded),
+            label: const Text('Rechercher une mise à jour'),
+          ),
+        Text(status, style: const TextStyle(color: AppColors.textSecondary)),
+      ],
+    );
   }
 }

@@ -1,8 +1,11 @@
 import 'dart:convert';
 
+import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
+import 'package:zelvora_tv/features/settings/settings_page.dart';
 import 'package:zelvora_tv/features/update/update_service.dart';
 
 void main() {
@@ -36,5 +39,25 @@ void main() {
     expect(
         await UpdateService(client: MockClient((_) async => throw Exception('offline')), currentVersion: '0.2.1').check(),
         isNull);
+  });
+
+  Future<void> pumpCheck(WidgetTester tester, String tag) => tester.pumpWidget(ProviderScope(
+        overrides: [updateServiceProvider.overrideWithValue(UpdateService(client: api(tag), currentVersion: '0.2.1'))],
+        child: const MaterialApp(home: Scaffold(body: UpdateCheck())),
+      ));
+
+  testWidgets('Réglages : rechercher une mise à jour', (tester) async {
+    await pumpCheck(tester, 'v0.3.0');
+    await tester.tap(find.byKey(const Key('update-check')));
+    await tester.pumpAndSettle();
+    expect(find.text('Nouvelle version disponible : 0.3.0'), findsOneWidget);
+    expect(find.byKey(const Key('update-install')), findsOneWidget);
+  });
+
+  testWidgets('Réglages : déjà à jour', (tester) async {
+    await pumpCheck(tester, 'v0.2.1');
+    await tester.tap(find.byKey(const Key('update-check')));
+    await tester.pumpAndSettle();
+    expect(find.text('Vous avez la dernière version.'), findsOneWidget);
   });
 }
