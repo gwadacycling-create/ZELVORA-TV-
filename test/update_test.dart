@@ -42,7 +42,7 @@ void main() {
   });
 
   Future<void> pumpCheck(WidgetTester tester, String tag) => tester.pumpWidget(ProviderScope(
-        overrides: [updateServiceProvider.overrideWithValue(UpdateService(client: api(tag), currentVersion: '0.2.1'))],
+        overrides: [updatesSupportedProvider.overrideWithValue(true), updateServiceProvider.overrideWithValue(UpdateService(client: api(tag), currentVersion: '0.2.1'))],
         child: const MaterialApp(home: Scaffold(body: UpdateCheck())),
       ));
 

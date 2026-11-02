@@ -491,6 +491,12 @@ class _UpdateCheckState extends ConsumerState<UpdateCheck> {
 
   @override
   Widget build(BuildContext context) {
+    if (!ref.watch(updatesSupportedProvider)) {
+      return const Text(
+        'Sur Android, installez la dernière version (fichier APK) depuis la page des versions de ZELVORA TV.',
+        style: TextStyle(color: AppColors.textSecondary),
+      );
+    }
     final found = _found;
     final String status;
     if (_error != null) {
