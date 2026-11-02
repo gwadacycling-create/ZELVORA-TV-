@@ -6,6 +6,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/channel_tiles.dart';
+import '../../core/widgets/h_scroller.dart';
 import '../../core/widgets/visuals.dart';
 import '../../domain/channel.dart';
 import '../../state/sources_state.dart';
@@ -89,16 +90,10 @@ class _TileRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return SizedBox(
+    return HScroller(
       height: 84,
-      child: ListView.separated(
-        scrollDirection: Axis.horizontal,
-        clipBehavior: Clip.none,
-        padding: const EdgeInsets.symmetric(vertical: 6),
-        itemCount: channels.length,
-        separatorBuilder: (_, _) => const SizedBox(width: 14),
-        itemBuilder: (_, i) => ChannelBrandTile(channel: channels[i], onTap: () => onTap(channels[i])),
-      ),
+      itemCount: channels.length,
+      itemBuilder: (_, i) => ChannelBrandTile(channel: channels[i], onTap: () => onTap(channels[i])),
     );
   }
 }
