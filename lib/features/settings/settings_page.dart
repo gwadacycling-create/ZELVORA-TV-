@@ -8,6 +8,7 @@ import '../../data/source_repository.dart';
 import '../../domain/iptv_source.dart';
 import '../../state/sources_state.dart';
 import '../player/playback.dart';
+import '../../state/parental_state.dart';
 import '../update/update_service.dart';
 
 class SettingsPage extends ConsumerWidget {
@@ -50,6 +51,7 @@ class SettingsPage extends ConsumerWidget {
           ],
         ),
         const _Section(title: 'Lecture vidéo', children: [_CompatSwitch()]),
+        const _Section(title: 'Contrôle parental', children: [ParentalSwitch()]),
         const _Section(
           title: 'Mise à jour',
           children: [
@@ -489,6 +491,12 @@ class _UpdateCheckState extends ConsumerState<UpdateCheck> {
 
   @override
   Widget build(BuildContext context) {
+    if (!ref.watch(updatesSupportedProvider)) {
+      return const Text(
+        'Sur Android, installez la dernière version (fichier APK) depuis la page des versions de ZELVORA TV.',
+        style: TextStyle(color: AppColors.textSecondary),
+      );
+    }
     final found = _found;
     final String status;
     if (_error != null) {
@@ -525,6 +533,70 @@ class _UpdateCheckState extends ConsumerState<UpdateCheck> {
           ),
         Text(status, style: const TextStyle(color: AppColors.textSecondary)),
       ],
+    );
+  }
+}
+
+/// Contrôle parental : masque les catégories adultes, code PIN pour désactiver.
+class ParentalSwitch extends ConsumerWidget {
+  const ParentalSwitch({super.key});
+
+  Future<String?> _askPin(BuildContext context, String title) {
+    final ctl = TextEditingController();
+    return showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(title),
+        content: TextField(
+          key: const Key('parental-pin'),
+          controller: ctl,
+          autofocus: true,
+          obscureText: true,
+          keyboardType: TextInputType.number,
+          maxLength: 4,
+          decoration: const InputDecoration(hintText: 'Code à 4 chiffres'),
+          onSubmitted: (v) => Navigator.of(ctx).pop(v),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.of(ctx).pop(), child: const Text('Annuler')),
+          FilledButton(onPressed: () => Navigator.of(ctx).pop(ctl.text), child: const Text('Valider')),
+        ],
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final p = ref.watch(parentalProvider);
+    return SwitchListTile(
+      key: const Key('parental-switch'),
+      contentPadding: EdgeInsets.zero,
+      value: p.enabled,
+      title: const Text('Masquer les contenus adultes'),
+      subtitle: const Text(
+        'Cache les catégories et titres adultes (chaînes, films, séries). Un code PIN est demandé pour désactiver.',
+        style: TextStyle(color: AppColors.textSecondary),
+      ),
+      onChanged: (v) async {
+        final messenger = ScaffoldMessenger.of(context);
+        final n = ref.read(parentalProvider.notifier);
+        if (v) {
+          final pin = await _askPin(context, 'Choisissez un code PIN');
+          if (pin == null) return;
+          if (!RegExp(r'^\d{4}$').hasMatch(pin)) {
+            messenger.showSnackBar(const SnackBar(content: Text('Le code doit contenir 4 chiffres.')));
+            return;
+          }
+          await n.enable(pin);
+        } else {
+          if (!context.mounted) return;
+          final pin = await _askPin(context, 'Code PIN du contrôle parental');
+          if (pin == null) return;
+          if (!await n.disable(pin)) {
+            messenger.showSnackBar(const SnackBar(content: Text('Code incorrect.')));
+          }
+        }
+      },
     );
   }
 }

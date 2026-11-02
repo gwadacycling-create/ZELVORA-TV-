@@ -28,6 +28,21 @@ class FakePlayback implements Playback {
   }
 
   Duration? lastStart;
+  var audio = const [TrackOption('1', 'Français'), TrackOption('2', 'Anglais')];
+  String? selAudio = '1';
+  String? selSub = 'no';
+  @override
+  List<TrackOption> get audioTracks => audio;
+  @override
+  List<TrackOption> get subtitleTracks => const [TrackOption('3', 'Français')];
+  @override
+  String? get currentAudio => selAudio;
+  @override
+  String? get currentSubtitle => selSub;
+  @override
+  Future<void> selectAudio(String id) async => selAudio = id;
+  @override
+  Future<void> selectSubtitle(String id) async => selSub = id;
   Duration pos = Duration.zero;
   Duration dur = Duration.zero;
   final _posCtl = StreamController<Duration>.broadcast();

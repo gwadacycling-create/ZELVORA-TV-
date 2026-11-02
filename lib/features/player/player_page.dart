@@ -313,6 +313,13 @@ class _Overlay extends StatelessWidget {
                     overflow: TextOverflow.ellipsis,
                   ),
                 ),
+                IconButton.filledTonal(
+                  key: const Key('tracks-button'),
+                  onPressed: () => showTracksDialog(context, playback),
+                  icon: const Icon(Icons.subtitles_rounded),
+                  tooltip: 'Audio et sous-titres',
+                ),
+                const SizedBox(width: 8),
                 IconButton.filledTonal(onPressed: onInfo, icon: const Icon(Icons.info_outline_rounded), tooltip: 'Infos techniques (I)'),
               ],
             ),
@@ -525,3 +532,52 @@ class _SeekBarState extends State<SeekBar> {
     );
   }
 }
+
+/// Choix de la langue audio et des sous-titres.
+Future<void> showTracksDialog(BuildContext context, Playback playback) => showDialog<void>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setState) {
+          final audio = playback.audioTracks;
+          final subs = playback.subtitleTracks;
+          Widget option(String label, bool selected, VoidCallback onTap) => ListTile(
+                dense: true,
+                leading: Icon(selected ? Icons.radio_button_checked_rounded : Icons.radio_button_off_rounded,
+                    color: selected ? AppColors.accent : AppColors.textSecondary),
+                title: Text(label),
+                onTap: onTap,
+              );
+          return AlertDialog(
+            title: const Text('Audio et sous-titres'),
+            content: SizedBox(
+              width: 380,
+              child: ListView(shrinkWrap: true, children: [
+                const Text('Langue audio', style: TextStyle(fontWeight: FontWeight.w700)),
+                if (audio.isEmpty)
+                  const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 8),
+                    child: Text('Une seule piste audio.', style: TextStyle(color: AppColors.textSecondary)),
+                  ),
+                for (final t in audio)
+                  option(t.label, playback.currentAudio == t.id, () async {
+                    await playback.selectAudio(t.id);
+                    setState(() {});
+                  }),
+                const SizedBox(height: 12),
+                const Text('Sous-titres', style: TextStyle(fontWeight: FontWeight.w700)),
+                option('Désactivés', playback.currentSubtitle == null || playback.currentSubtitle == 'no', () async {
+                  await playback.selectSubtitle('no');
+                  setState(() {});
+                }),
+                for (final t in subs)
+                  option(t.label, playback.currentSubtitle == t.id, () async {
+                    await playback.selectSubtitle(t.id);
+                    setState(() {});
+                  }),
+              ]),
+            ),
+            actions: [TextButton(onPressed: () => Navigator.of(ctx).pop(), child: const Text('Fermer'))],
+          );
+        },
+      ),
+    );

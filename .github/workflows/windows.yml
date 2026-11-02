@@ -1,4 +1,4 @@
-name: Windows build
+name: Build Windows et Android
 
 on:
   push:
@@ -48,14 +48,62 @@ jobs:
         with:
           name: ZELVORA-TV-Windows-installeur
           path: dist/*.exe
-      # Publication de la version (mises à jour automatiques) : uniquement sur main.
+
+  android:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Version
+        id: v
+        run: echo "version=$(grep -oP '^version:\s*\K[0-9.]+' pubspec.yaml)" >> "$GITHUB_OUTPUT"
+      # Clé de signature (facultative) : secret ZELVORA_KEYSTORE_B64 + mots de passe.
+      - name: Clé de signature
+        env:
+          KS: ${{ secrets.ZELVORA_KEYSTORE_B64 }}
+        run: |
+          if [ -n "$KS" ]; then echo "$KS" | base64 -d > "$RUNNER_TEMP/zelvora.jks"; echo "ZELVORA_KEYSTORE_PATH=$RUNNER_TEMP/zelvora.jks" >> "$GITHUB_ENV"; fi
+      - run: flutter pub get
+      - run: flutter build apk --release --split-per-abi --target-platform android-arm,android-arm64 --dart-define=APP_VERSION=${{ steps.v.outputs.version }}
+        env:
+          ZELVORA_KEYSTORE_PASSWORD: ${{ secrets.ZELVORA_KEYSTORE_PASSWORD }}
+          ZELVORA_KEY_ALIAS: ${{ secrets.ZELVORA_KEY_ALIAS }}
+          ZELVORA_KEY_PASSWORD: ${{ secrets.ZELVORA_KEY_PASSWORD }}
+      - name: Noms des fichiers
+        run: |
+          mkdir -p dist
+          cp build/app/outputs/flutter-apk/app-arm64-v8a-release.apk "dist/ZELVORA-TV-Android-${{ steps.v.outputs.version }}-arm64.apk"
+          cp build/app/outputs/flutter-apk/app-armeabi-v7a-release.apk "dist/ZELVORA-TV-Android-${{ steps.v.outputs.version }}-arm32.apk"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ZELVORA-TV-Android
+          path: dist/*.apk
+
+  # Publication de la version (mises à jour automatiques) : uniquement sur main.
+  # Windows est indispensable ; Android est ajouté s'il a réussi.
+  release:
+    needs: [windows, android]
+    if: always() && needs.windows.result == 'success' && github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
       - name: Publier la release
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-        shell: pwsh
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          $tag = "v${{ steps.v.outputs.version }}"
-          gh release view $tag 2>$null
-          if ($LASTEXITCODE -eq 0) { Write-Host "La release $tag existe déjà."; exit 0 }
-          gh release create $tag (Get-ChildItem dist\*.exe).FullName --title "ZELVORA TV $tag" --notes "Version ${{ steps.v.outputs.version }}"
+          version=$(grep -oP '^version:\s*\K[0-9.]+' pubspec.yaml)
+          tag="v$version"
+          if gh release view "$tag" >/dev/null 2>&1; then echo "La release $tag existe déjà."; exit 0; fi
+          gh release create "$tag" dist/* --title "ZELVORA TV $tag" --notes "Version $version — Windows : installeur .exe. Android / Android TV : APK arm64 (la plupart des appareils récents) ou arm32 (anciennes box TV)."

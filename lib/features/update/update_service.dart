@@ -75,6 +75,9 @@ class UpdateService {
   }
 }
 
+/// Mises à jour automatiques : uniquement l'application Windows.
+final updatesSupportedProvider = Provider<bool>((ref) => Platform.isWindows);
+
 final updateServiceProvider = Provider<UpdateService>((ref) => UpdateService());
 
 /// Vérifie au démarrage puis toutes les heures (Windows uniquement).

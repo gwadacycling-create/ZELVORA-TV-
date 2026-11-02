@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 
 import '../theme/app_theme.dart';
 
@@ -188,7 +189,7 @@ class TopBar extends StatelessWidget {
     return Row(mainAxisSize: MainAxisSize.min, children: [
       IconButton(
         tooltip: 'Rechercher',
-        onPressed: onSearch,
+        onPressed: onSearch ?? () => GoRouter.of(context).go('/search'),
         icon: const Icon(Icons.search_rounded, size: 28),
       ),
       const SizedBox(width: 8),

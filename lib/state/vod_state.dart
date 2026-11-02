@@ -8,6 +8,7 @@ import '../data/xtream_client.dart';
 import '../domain/channel.dart';
 import '../domain/iptv_source.dart';
 import '../domain/vod.dart';
+import 'parental_state.dart';
 import 'sources_state.dart';
 
 class VodCatalog {
@@ -38,6 +39,7 @@ XtreamClient? xtreamFor(IptvSource s, SourceRepository repo) {
 
 /// Catalogue des films et séries de toutes les sources (gardé en mémoire).
 final vodCatalogProvider = FutureProvider<VodCatalog>((ref) async {
+  final parental = ref.watch(parentalProvider).enabled;
   final sources = await ref.watch(sourcesProvider.future);
   final data = await ref.watch(channelsProvider.future);
   final repo = ref.read(sourceRepositoryProvider);
@@ -68,6 +70,10 @@ final vodCatalogProvider = FutureProvider<VodCatalog>((ref) async {
       category: c.group,
       url: c.url,
     ));
+  }
+  if (parental) {
+    movies.removeWhere((m) => isAdultContent(m.category, m.name));
+    series.removeWhere((m) => isAdultContent(m.category, m.name));
   }
   return VodCatalog(movies: movies, series: series, errors: errors);
 });
