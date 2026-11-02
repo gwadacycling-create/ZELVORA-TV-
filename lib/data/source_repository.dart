@@ -59,6 +59,24 @@ class SourceRepository {
   final http.Client _client;
   final Future<String> Function(String path) _readFile;
 
+  final _epgUrls = <String, String>{};
+
+  /// Adresse du guide TV (XMLTV) de la source, si elle en propose un.
+  String? epgUrlFor(IptvSource source) {
+    if (source.kind == SourceKind.xtream) {
+      try {
+        final base = XtreamClient.normalizeServer(source.location);
+        return base.replace(
+          path: '/xmltv.php',
+          queryParameters: {'username': source.username ?? '', 'password': source.password ?? ''},
+        ).toString();
+      } catch (_) {
+        return null;
+      }
+    }
+    return _epgUrls[source.id];
+  }
+
   Future<List<IptvSource>> loadSources() async => IptvSource.decodeList(await _store.read(_key));
 
   Future<void> saveSources(List<IptvSource> sources) => _store.write(_key, IptvSource.encodeList(sources));
@@ -108,6 +126,8 @@ class SourceRepository {
           throw SourceException('Fichier introuvable ou illisible.');
         }
     }
+    final epg = M3uParser.epgUrl(content);
+    if (epg != null) _epgUrls[source.id] = epg;
     final channels = M3uParser.parse(content);
     if (channels.isEmpty) {
       throw SourceException('Aucune chaîne trouvée : ce n’est pas une playlist M3U valide.');
