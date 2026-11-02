@@ -7,6 +7,7 @@ import 'package:http/testing.dart';
 import 'package:zelvora_tv/data/source_repository.dart';
 import 'package:zelvora_tv/data/xtream_client.dart';
 import 'package:zelvora_tv/domain/iptv_source.dart';
+import 'package:zelvora_tv/domain/programme.dart';
 
 import 'helpers.dart';
 
@@ -31,7 +32,7 @@ http.Client fakeXtream({String auth = '1', String status = 'Active', int? exp, L
                   'max_connections': '1',
                   'allowed_output_formats': formats,
                 },
-                'server_info': {'url': 'tv.test', 'port': '8080'},
+                'server_info': {'url': 'tv.test', 'port': '8080', 'timestamp_now': 1793700000, 'time_now': '2026-11-03 11:00:00'},
               }),
               200);
         case 'get_live_categories':
@@ -44,7 +45,7 @@ http.Client fakeXtream({String auth = '1', String status = 'Active', int? exp, L
         case 'get_live_streams':
           return _json(
               jsonEncode([
-                {'num': 1, 'name': 'Info Une', 'stream_id': 101, 'stream_icon': 'http://l/1.png', 'epg_channel_id': 'info1', 'category_id': '1'},
+                {'num': 1, 'name': 'Info Une', 'stream_id': 101, 'stream_icon': 'http://l/1.png', 'epg_channel_id': 'info1', 'category_id': '1', 'tv_archive': 1, 'tv_archive_duration': '3'},
                 {'num': 2, 'name': 'Sport Deux', 'stream_id': 202, 'stream_icon': '', 'epg_channel_id': null, 'category_id': '2'},
               ]),
               200);
@@ -104,6 +105,36 @@ void main() {
     expect(list[0].url, 'http://tv.test:8080/live/demo/secret/101.ts');
     expect(list[1].logo, isNull);
     expect(list[1].sourceId, 'x1');
+  });
+
+  test('replay : lien timeshift à l’heure du serveur, seulement si la chaîne le permet', () async {
+    final repo = SourceRepository(store: MemorySecureStore(), client: fakeXtream());
+    final list = await repo.fetchChannels(src());
+    expect(list[0].archiveDays, 3);
+    expect(list[0].catchupOffsetMin, 60);
+    expect(list[1].archiveDays, 0);
+    final now = DateTime.now();
+    final p = Programme(
+      start: DateTime.utc(2026, 11, 1, 19, 5),
+      stop: DateTime.utc(2026, 11, 1, 20, 35),
+      title: 'Journal',
+    );
+    final r = list[0].replay(p);
+    expect(r.url, 'http://tv.test:8080/timeshift/demo/secret/90/2026-11-01:20-05/101.ts');
+    expect(r.vod, isTrue);
+    expect(r.name, 'Journal · Info Une');
+    final recent = Programme(start: now.subtract(const Duration(hours: 2)), stop: now.subtract(const Duration(hours: 1)), title: 'a');
+    final old = Programme(start: now.subtract(const Duration(days: 4)), stop: now.subtract(const Duration(days: 4)), title: 'b');
+    final future = Programme(start: now.add(const Duration(hours: 1)), stop: now.add(const Duration(hours: 2)), title: 'c');
+    expect(list[0].canReplay(recent), isTrue);
+    expect(list[0].canReplay(old), isFalse);
+    expect(list[0].canReplay(future), isFalse);
+    expect(list[1].canReplay(recent), isFalse);
+  });
+
+  test('fuseau du serveur', () {
+    expect(serverUtcOffset({'timestamp_now': 1793700000, 'time_now': '2026-11-03 05:00:00'}), -300);
+    expect(serverUtcOffset({'url': 'x'}), isNull);
   });
 
   test('format m3u8 si le serveur n’autorise pas ts', () async {

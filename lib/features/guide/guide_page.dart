@@ -9,6 +9,7 @@ import '../../domain/channel.dart';
 import '../../domain/programme.dart';
 import '../../state/epg_state.dart';
 import '../../state/sources_state.dart';
+import '../../state/vod_state.dart';
 import '../player/playback.dart';
 
 const _days = ['lun.', 'mar.', 'mer.', 'jeu.', 'ven.', 'sam.', 'dim.'];
@@ -32,6 +33,19 @@ class _GuidePageState extends ConsumerState<GuidePage> {
   int _day = 0;
   Channel? _selected;
   Programme? _programme;
+  final _hScroll = ScrollController();
+  int? _jumpedFor;
+
+  @override
+  void dispose() {
+    _hScroll.dispose();
+    super.dispose();
+  }
+
+  void _setDay(int d) => setState(() {
+        _day = d;
+        _programme = null;
+      });
 
   @override
   Widget build(BuildContext context) {
@@ -40,9 +54,18 @@ class _GuidePageState extends ConsumerState<GuidePage> {
     final epgAsync = ref.watch(epgProvider);
     final epg = epgAsync.value;
     final epgLoading = epgAsync.isLoading;
-    final start = _day == 0
-        ? DateTime(now.year, now.month, now.day, now.hour - 1, now.minute >= 30 ? 30 : 0)
-        : DateTime(now.year, now.month, now.day + _day);
+    // Replay : jours passés disponibles, et la journée entière d'aujourd'hui.
+    final past = replayDays(channels);
+    final hourBefore = DateTime(now.year, now.month, now.day, now.hour - 1, now.minute >= 30 ? 30 : 0);
+    final start = _day == 0 && past == 0 ? hourBefore : DateTime(now.year, now.month, now.day + _day);
+    // On se place sur l'heure actuelle (aujourd'hui) ou au début de la journée.
+    if (_jumpedFor != _day * 10 + past) {
+      _jumpedFor = _day * 10 + past;
+      final x = _day == 0 ? hourBefore.difference(start).inMinutes / 30 * _slotWidth : 0.0;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (_hScroll.hasClients) _hScroll.jumpTo(x.clamp(0.0, _hScroll.position.maxScrollExtent));
+      });
+    }
     final slots = List.generate(48, (i) => start.add(Duration(minutes: 30 * i)));
     final nowX = now.difference(start).inMinutes / 30 * _slotWidth;
     final selected = _selected ?? (channels.isEmpty ? null : channels.first);
@@ -71,21 +94,23 @@ class _GuidePageState extends ConsumerState<GuidePage> {
         child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
           // Sélecteur de jour.
           Row(children: [
-            _RoundBtn(icon: Icons.chevron_left_rounded, onTap: _day > 0 ? () => setState(() => _day--) : null),
+            _RoundBtn(icon: Icons.chevron_left_rounded, onTap: _day > -past ? () => _setDay(_day - 1) : null),
             const SizedBox(width: 10),
-            for (var d = 0; d < 3; d++) ...[
+            for (var d = -past; d < 3; d++) ...[
               _DayChip(
                 label: d == 0
                     ? 'Aujourd’hui · ${_fmtDay(now)}'
                     : d == 1
                         ? 'Demain'
-                        : _fmtDay(now.add(Duration(days: d))),
+                        : d == -1
+                            ? 'Hier'
+                            : _fmtDay(now.add(Duration(days: d))),
                 selected: _day == d,
-                onTap: () => setState(() => _day = d),
+                onTap: () => _setDay(d),
               ),
               const SizedBox(width: 10),
             ],
-            _RoundBtn(icon: Icons.chevron_right_rounded, onTap: _day < 2 ? () => setState(() => _day++) : null),
+            _RoundBtn(icon: Icons.chevron_right_rounded, onTap: _day < 2 ? () => _setDay(_day + 1) : null),
           ]),
           const SizedBox(height: 16),
           Expanded(
@@ -101,6 +126,7 @@ class _GuidePageState extends ConsumerState<GuidePage> {
                       child: Text('Ajoutez une source pour afficher la grille des chaînes.',
                           style: TextStyle(color: AppColors.textSecondary)))
                   : SingleChildScrollView(
+                      controller: _hScroll,
                       scrollDirection: Axis.horizontal,
                       child: SizedBox(
                         width: _channelCol + slots.length * _slotWidth,
@@ -156,6 +182,7 @@ class _GuidePageState extends ConsumerState<GuidePage> {
                                       child: Container(
                                         decoration: const BoxDecoration(border: Border(top: BorderSide(color: AppColors.border))),
                                         child: _ProgrammeRow(
+                                          channel: c,
                                           programmes: programmesOf(epg, c),
                                           windowStart: start,
                                           slotWidth: _slotWidth,
@@ -218,8 +245,18 @@ class _DetailCard extends ConsumerWidget {
   final Channel channel;
   final Programme? programme;
 
+  /// Replay (Xtream) : lit l'émission depuis son début.
+  void _replay(BuildContext context, WidgetRef ref) {
+    ref.read(currentVodProvider.notifier).set(null);
+    ref.read(currentChannelProvider.notifier).play(channel.replay(programme!));
+    context.push('/player');
+  }
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final now = DateTime.now();
+    final replay = programme != null && channel.canReplay(programme!, now);
+    final past = programme != null && !programme!.stop.isAfter(now);
     return Container(
       padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
@@ -253,14 +290,30 @@ class _DetailCard extends ConsumerWidget {
             ],
           ]),
         ),
-        FilledButton.icon(
-          onPressed: () {
-            ref.read(currentChannelProvider.notifier).play(channel);
-            context.push('/player');
-          },
-          icon: const Icon(Icons.play_arrow_rounded),
-          label: const Text('Regarder', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 16)),
-        ),
+        if (replay && past)
+          FilledButton.icon(
+            onPressed: () => _replay(context, ref),
+            icon: const Icon(Icons.replay_rounded),
+            label: const Text('Revoir', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 16)),
+          )
+        else ...[
+          if (replay) ...[
+            OutlinedButton.icon(
+              onPressed: () => _replay(context, ref),
+              icon: const Icon(Icons.replay_rounded),
+              label: const Text('Depuis le début'),
+            ),
+            const SizedBox(width: 10),
+          ],
+          FilledButton.icon(
+            onPressed: () {
+              ref.read(currentChannelProvider.notifier).play(channel);
+              context.push('/player');
+            },
+            icon: const Icon(Icons.play_arrow_rounded),
+            label: const Text('Regarder', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 16)),
+          ),
+        ],
       ]),
     );
   }
@@ -321,6 +374,7 @@ class _RoundBtn extends StatelessWidget {
 /// Ligne de programmes d'une chaîne, placés selon leur horaire.
 class _ProgrammeRow extends StatelessWidget {
   const _ProgrammeRow({
+    required this.channel,
     required this.programmes,
     required this.windowStart,
     required this.slotWidth,
@@ -330,6 +384,7 @@ class _ProgrammeRow extends StatelessWidget {
     required this.loading,
     required this.onTap,
   });
+  final Channel channel;
   final List<Programme> programmes;
   final DateTime windowStart;
   final double slotWidth;
@@ -402,10 +457,18 @@ class _ProgrammeRow extends StatelessWidget {
                           mainAxisAlignment: MainAxisAlignment.center,
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text(p.title,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13)),
+                            Row(children: [
+                              if (p.stop.isBefore(now) && channel.canReplay(p, now)) ...[
+                                const Icon(Icons.replay_rounded, size: 13, color: AppColors.accent),
+                                const SizedBox(width: 4),
+                              ],
+                              Flexible(
+                                child: Text(p.title,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13)),
+                              ),
+                            ]),
                             Text('${_hhmm(p.start)} – ${_hhmm(p.stop)}',
                                 maxLines: 1,
                                 overflow: TextOverflow.clip,
