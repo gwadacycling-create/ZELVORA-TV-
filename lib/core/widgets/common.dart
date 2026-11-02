@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
 import '../theme/app_theme.dart';
+import 'h_scroller.dart';
 
 /// Gabarit commun des pages : titre + contenu défilant.
 class PageScaffold extends StatelessWidget {
@@ -150,16 +151,11 @@ class PosterRow extends StatelessWidget {
       children: [
         Text(title, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w700)),
         const SizedBox(height: 14),
-        SizedBox(
+        HScroller(
           height: width / aspectRatio + 40,
-          child: ListView.separated(
-            scrollDirection: Axis.horizontal,
-            clipBehavior: Clip.none,
-            padding: const EdgeInsets.symmetric(vertical: 6),
-            itemCount: count,
-            separatorBuilder: (_, _) => const SizedBox(width: 16),
-            itemBuilder: (_, _) => PosterCard(width: width, aspectRatio: aspectRatio),
-          ),
+          itemCount: count,
+          spacing: 16,
+          itemBuilder: (_, _) => PosterCard(width: width, aspectRatio: aspectRatio),
         ),
         const SizedBox(height: 28),
       ],
