@@ -158,6 +158,21 @@ class _PlayerPageState extends ConsumerState<PlayerPage> {
           playback.togglePause();
           _bump();
         },
+        // Touches multimédia des télécommandes (Android TV, claviers).
+        const SingleActivator(LogicalKeyboardKey.mediaPlayPause): () {
+          playback.togglePause();
+          _bump();
+        },
+        const SingleActivator(LogicalKeyboardKey.mediaStop): _close,
+        const SingleActivator(LogicalKeyboardKey.mediaFastForward): () {
+          if (vod) _seek(30);
+        },
+        const SingleActivator(LogicalKeyboardKey.mediaRewind): () {
+          if (vod) _seek(-30);
+        },
+        const SingleActivator(LogicalKeyboardKey.mediaTrackNext): () => vod ? _seek(30) : _zap(1),
+        const SingleActivator(LogicalKeyboardKey.mediaTrackPrevious): () => vod ? _seek(-30) : _zap(-1),
+        const SingleActivator(LogicalKeyboardKey.info): () => setState(() => _diag = !_diag),
       },
       child: Focus(
         autofocus: true,

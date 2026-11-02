@@ -20,6 +20,18 @@ class _AppShellState extends State<AppShell> {
 
   @override
   Widget build(BuildContext context) {
+    // Touche Retour (télécommande, téléphone) : revient à l'Accueil au lieu
+    // de quitter l'application. Depuis l'Accueil, elle quitte normalement.
+    return PopScope(
+      canPop: widget.location == '/',
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop) context.go('/');
+      },
+      child: _build(context),
+    );
+  }
+
+  Widget _build(BuildContext context) {
     final width = MediaQuery.sizeOf(context).width;
     if (width < 700) return _MobileShell(location: widget.location, child: widget.child);
     final expanded = _expanded && width > 1000;

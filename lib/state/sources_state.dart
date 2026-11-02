@@ -56,6 +56,26 @@ class SourcesNotifier extends AsyncNotifier<List<IptvSource>> {
   }
 }
 
+/// Actualisation discrète : télécharge à nouveau chaque source en arrière-plan,
+/// sans vider l'écran. Si une source ne répond pas, l'ancienne liste est gardée.
+final silentRefreshProvider = Provider<Future<void> Function()>((ref) => () async {
+      final sources = ref.read(sourcesProvider).value ?? const <IptvSource>[];
+      if (sources.isEmpty) return;
+      final repo = ref.read(sourceRepositoryProvider);
+      final cache = ref.read(channelCacheProvider);
+      var changed = false;
+      await Future.wait(sources.map((s) async {
+        try {
+          cache[s.id] = await repo.fetchChannels(s);
+          changed = true;
+        } catch (_) {}
+      }));
+      if (changed) ref.invalidate(channelsProvider);
+    });
+
+/// Fréquence de l'actualisation automatique des playlists.
+const kAutoRefreshEvery = Duration(hours: 12);
+
 /// Chaînes gardées en mémoire uniquement (jamais écrites sur le disque).
 final channelCacheProvider = Provider<Map<String, List<Channel>>>((ref) => {});
 
