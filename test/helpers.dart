@@ -24,6 +24,18 @@ class FakePlayback implements Playback {
   Future<void> play(Channel channel) async => played.add(channel);
   @override
   Future<void> togglePause() async => pauses++;
+  double _vol = 100;
+  final _volCtl = StreamController<double>.broadcast();
+  @override
+  Future<void> setVolume(double v) async {
+    _vol = v;
+    _volCtl.add(v);
+  }
+
+  @override
+  double get volume => _vol;
+  @override
+  Stream<double> get volumeStream => _volCtl.stream;
   @override
   Future<void> stop() async {}
   @override

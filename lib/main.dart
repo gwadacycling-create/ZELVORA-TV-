@@ -10,11 +10,17 @@ Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   MediaKit.ensureInitialized();
   var compat = false;
+  var volume = 100.0;
   try {
-    compat = await const SystemSecureStore().read(kVideoCompatKey) == '1';
+    const store = SystemSecureStore();
+    compat = await store.read(kVideoCompatKey) == '1';
+    volume = double.tryParse(await store.read(kVolumeKey) ?? '') ?? 100;
   } catch (_) {}
   runApp(ProviderScope(
-    overrides: [videoCompatModeProvider.overrideWithValue(compat)],
+    overrides: [
+      videoCompatModeProvider.overrideWithValue(compat),
+      initialVolumeProvider.overrideWithValue(volume),
+    ],
     child: const ZelvoraApp(),
   ));
 }

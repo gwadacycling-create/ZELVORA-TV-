@@ -8,6 +8,7 @@ import '../../domain/channel.dart';
 import '../../state/sources_state.dart';
 import '../player/playback.dart';
 import '../player/player_page.dart';
+import '../player/volume_control.dart';
 
 /// TV en direct : catégories à gauche, chaînes au centre, aperçu à droite.
 class LivePage extends ConsumerWidget {
@@ -346,6 +347,8 @@ class _Preview extends ConsumerWidget {
                 label: const Text('Arrêter'),
               ),
             ]),
+            const SizedBox(height: 8),
+            const Align(alignment: Alignment.centerLeft, child: VolumeControl(width: 140)),
           ] else
             const Text('Cliquez sur une chaîne pour l’aperçu, puis à nouveau pour le plein écran.',
                 style: TextStyle(color: AppColors.textSecondary)),

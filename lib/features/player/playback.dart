@@ -11,6 +11,11 @@ import '../../domain/channel.dart';
 abstract class Playback {
   Future<void> play(Channel channel);
   Future<void> togglePause();
+
+  /// Volume de 0 à 100.
+  Future<void> setVolume(double volume);
+  double get volume;
+  Stream<double> get volumeStream;
   Future<void> stop();
   Widget view({bool controls = false});
   Stream<String> get errors;
@@ -25,6 +30,10 @@ abstract class Playback {
 /// (utile si l'image reste noire sur certaines cartes graphiques).
 final videoCompatModeProvider = Provider<bool>((ref) => false);
 const kVideoCompatKey = 'zelvora.video.compat';
+
+/// Volume mémorisé entre deux ouvertures de l'application.
+final initialVolumeProvider = Provider<double>((ref) => 100);
+const kVolumeKey = 'zelvora.volume';
 
 class MediaKitPlayback implements Playback {
   MediaKitPlayback({bool compatMode = false}) : _compat = compatMode {
@@ -51,6 +60,15 @@ class MediaKitPlayback implements Playback {
 
   @override
   Future<void> togglePause() => _player.playOrPause();
+
+  @override
+  Future<void> setVolume(double volume) => _player.setVolume(volume.clamp(0, 100).toDouble());
+
+  @override
+  double get volume => _player.state.volume;
+
+  @override
+  Stream<double> get volumeStream => _player.stream.volume;
 
   @override
   Future<void> stop() => _player.stop();
@@ -100,6 +118,7 @@ class MediaKitPlayback implements Playback {
 
 final playbackProvider = Provider<Playback>((ref) {
   final p = MediaKitPlayback(compatMode: ref.read(videoCompatModeProvider));
+  p.setVolume(ref.read(initialVolumeProvider));
   ref.onDispose(p.dispose);
   return p;
 });
