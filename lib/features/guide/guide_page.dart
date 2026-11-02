@@ -6,6 +6,8 @@ import '../../core/theme/app_theme.dart';
 import '../../core/widgets/channel_tiles.dart';
 import '../../core/widgets/visuals.dart';
 import '../../domain/channel.dart';
+import '../../domain/programme.dart';
+import '../../state/epg_state.dart';
 import '../../state/sources_state.dart';
 import '../player/playback.dart';
 
@@ -15,7 +17,7 @@ String _fmtDay(DateTime d) => '${_days[d.weekday - 1]} ${d.day} ${_months[d.mont
 String _hhmm(DateTime t) => '${t.hour.toString().padLeft(2, '0')}:${t.minute.toString().padLeft(2, '0')}';
 
 /// Guide TV : grille chaînes × horaires.
-/// Les programmes s'afficheront avec le guide EPG (étape 4).
+/// Programmes issus du guide XMLTV de la source (Xtream ou M3U url-tvg).
 class GuidePage extends ConsumerStatefulWidget {
   const GuidePage({super.key});
 
@@ -29,13 +31,19 @@ class _GuidePageState extends ConsumerState<GuidePage> {
   static const _channelCol = 230.0;
   int _day = 0;
   Channel? _selected;
+  Programme? _programme;
 
   @override
   Widget build(BuildContext context) {
     final channels = ref.watch(channelsProvider).value?.channels ?? const <Channel>[];
     final now = DateTime.now();
-    final start = DateTime(now.year, now.month, now.day, now.hour - 1, now.minute >= 30 ? 30 : 0);
-    final slots = List.generate(10, (i) => start.add(Duration(minutes: 30 * i)));
+    final epgAsync = ref.watch(epgProvider);
+    final epg = epgAsync.value;
+    final epgLoading = epgAsync.isLoading;
+    final start = _day == 0
+        ? DateTime(now.year, now.month, now.day, now.hour - 1, now.minute >= 30 ? 30 : 0)
+        : DateTime(now.year, now.month, now.day + _day);
+    final slots = List.generate(48, (i) => start.add(Duration(minutes: 30 * i)));
     final nowX = now.difference(start).inMinutes / 30 * _slotWidth;
     final selected = _selected ?? (channels.isEmpty ? null : channels.first);
 
@@ -146,23 +154,19 @@ class _GuidePageState extends ConsumerState<GuidePage> {
                                     ),
                                     Expanded(
                                       child: Container(
-                                        padding: const EdgeInsets.all(5),
                                         decoration: const BoxDecoration(border: Border(top: BorderSide(color: AppColors.border))),
-                                        child: InkWell(
-                                          onTap: () => setState(() => _selected = c),
-                                          borderRadius: BorderRadius.circular(8),
-                                          child: Container(
-                                            alignment: Alignment.centerLeft,
-                                            padding: const EdgeInsets.symmetric(horizontal: 14),
-                                            decoration: BoxDecoration(
-                                              color: AppColors.surfaceHigh.withValues(alpha: 0.7),
-                                              borderRadius: BorderRadius.circular(8),
-                                              border: Border.all(
-                                                  color: selected?.key == c.key ? AppColors.accent : Colors.transparent, width: 1.5),
-                                            ),
-                                            child: const Text('Programme non disponible — guide EPG à l’étape suivante',
-                                                style: TextStyle(color: AppColors.textSecondary)),
-                                          ),
+                                        child: _ProgrammeRow(
+                                          programmes: programmesOf(epg, c),
+                                          windowStart: start,
+                                          slotWidth: _slotWidth,
+                                          slots: slots.length,
+                                          selected: selected?.key == c.key ? _programme : null,
+                                          channelSelected: selected?.key == c.key,
+                                          loading: epgLoading,
+                                          onTap: (p) => setState(() {
+                                            _selected = c;
+                                            _programme = p;
+                                          }),
                                         ),
                                       ),
                                     ),
@@ -198,7 +202,10 @@ class _GuidePageState extends ConsumerState<GuidePage> {
           ),
           if (selected != null) ...[
             const SizedBox(height: 16),
-            _DetailCard(channel: selected),
+            _DetailCard(
+              channel: selected,
+              programme: _programme ?? nowNext(programmesOf(epg, selected), now).$1,
+            ),
           ],
         ]),
       ),
@@ -207,8 +214,9 @@ class _GuidePageState extends ConsumerState<GuidePage> {
 }
 
 class _DetailCard extends ConsumerWidget {
-  const _DetailCard({required this.channel});
+  const _DetailCard({required this.channel, this.programme});
   final Channel channel;
+  final Programme? programme;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -230,10 +238,19 @@ class _DetailCard extends ConsumerWidget {
         const SizedBox(width: 20),
         Expanded(
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text(channel.name, style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w900)),
+            Text(programme?.title ?? channel.name,
+                maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w900)),
             const SizedBox(height: 4),
-            Text(channel.group.isEmpty ? 'Chaîne en direct' : channel.group,
-                style: const TextStyle(color: AppColors.textSecondary)),
+            Text(
+              programme == null
+                  ? (channel.group.isEmpty ? 'Chaîne en direct' : channel.group)
+                  : '${channel.name} · ${_fmtDay(programme!.start)} · ${_hhmm(programme!.start)} – ${_hhmm(programme!.stop)}',
+              style: const TextStyle(color: AppColors.textSecondary),
+            ),
+            if (programme != null && programme!.description.isNotEmpty) ...[
+              const SizedBox(height: 6),
+              Text(programme!.description, maxLines: 2, overflow: TextOverflow.ellipsis),
+            ],
           ]),
         ),
         FilledButton.icon(
@@ -298,5 +315,108 @@ class _RoundBtn extends StatelessWidget {
         child: Icon(icon, color: onTap == null ? AppColors.textSecondary : Colors.white),
       ),
     );
+  }
+}
+
+/// Ligne de programmes d'une chaîne, placés selon leur horaire.
+class _ProgrammeRow extends StatelessWidget {
+  const _ProgrammeRow({
+    required this.programmes,
+    required this.windowStart,
+    required this.slotWidth,
+    required this.slots,
+    required this.selected,
+    required this.channelSelected,
+    required this.loading,
+    required this.onTap,
+  });
+  final List<Programme> programmes;
+  final DateTime windowStart;
+  final double slotWidth;
+  final int slots;
+  final Programme? selected;
+  final bool channelSelected;
+  final bool loading;
+  final void Function(Programme?) onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final end = windowStart.add(Duration(minutes: 30 * slots));
+    final perMin = slotWidth / 30;
+    final visible = [for (final p in programmes) if (p.stop.isAfter(windowStart) && p.start.isBefore(end)) p];
+    if (visible.isEmpty) {
+      return Padding(
+        padding: const EdgeInsets.all(5),
+        child: InkWell(
+          onTap: () => onTap(null),
+          borderRadius: BorderRadius.circular(8),
+          child: Container(
+            alignment: Alignment.centerLeft,
+            padding: const EdgeInsets.symmetric(horizontal: 14),
+            decoration: BoxDecoration(
+              color: AppColors.surfaceHigh.withValues(alpha: 0.7),
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: channelSelected ? AppColors.accent : Colors.transparent, width: 1.5),
+            ),
+            child: Text(loading ? 'Chargement du guide…' : 'Aucun programme disponible pour cette chaîne',
+                style: const TextStyle(color: AppColors.textSecondary)),
+          ),
+        ),
+      );
+    }
+    final now = DateTime.now();
+    return Stack(children: [
+      for (final p in visible)
+        Builder(builder: (context) {
+          final s = p.start.isBefore(windowStart) ? windowStart : p.start;
+          final e = p.stop.isAfter(end) ? end : p.stop;
+          final left = s.difference(windowStart).inMinutes * perMin;
+          final width = (e.difference(s).inMinutes * perMin).clamp(8.0, double.infinity);
+          final isSel = selected != null && selected!.start == p.start && channelSelected;
+          final live = p.isOnAt(now);
+          return Positioned(
+            left: left + 2,
+            width: width - 4,
+            top: 5,
+            bottom: 5,
+            child: Tooltip(
+              message: '${_hhmm(p.start)} – ${_hhmm(p.stop)}  ${p.title}',
+              waitDuration: const Duration(milliseconds: 600),
+              child: InkWell(
+                onTap: () => onTap(p),
+                borderRadius: BorderRadius.circular(8),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10),
+                  alignment: Alignment.centerLeft,
+                  decoration: BoxDecoration(
+                    color: live ? const Color(0xFF2A1F14) : AppColors.surfaceHigh.withValues(alpha: 0.7),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(
+                      color: isSel ? AppColors.accent : (live ? AppColors.accent.withValues(alpha: 0.35) : Colors.transparent),
+                      width: 1.5,
+                    ),
+                  ),
+                  child: width < 40
+                      ? const SizedBox.shrink()
+                      : Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(p.title,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13)),
+                            Text('${_hhmm(p.start)} – ${_hhmm(p.stop)}',
+                                maxLines: 1,
+                                overflow: TextOverflow.clip,
+                                style: const TextStyle(color: AppColors.textSecondary, fontSize: 11)),
+                          ],
+                        ),
+                ),
+              ),
+            ),
+          );
+        }),
+    ]);
   }
 }

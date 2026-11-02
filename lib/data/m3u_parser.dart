@@ -8,6 +8,20 @@ import '../domain/channel.dart';
 class M3uParser {
   static final _attr = RegExp(r'([\w-]+)="([^"]*)"');
 
+  /// Lien du guide TV déclaré dans l'en-tête (#EXTM3U url-tvg="..." ou x-tvg-url="...").
+  static String? epgUrl(String content) {
+    final head = content.length > 4096 ? content.substring(0, 4096) : content;
+    final line = head.split(RegExp(r'\r?\n')).firstWhere((l) => l.contains('#EXTM3U'), orElse: () => '');
+    for (final m in _attr.allMatches(line)) {
+      final k = m.group(1)!.toLowerCase();
+      if (k == 'url-tvg' || k == 'x-tvg-url' || k == 'tvg-url') {
+        final first = m.group(2)!.split(',').first.trim();
+        if (first.startsWith('http')) return first;
+      }
+    }
+    return null;
+  }
+
   static List<Channel> parse(String content) {
     final channels = <Channel>[];
     var text = content;

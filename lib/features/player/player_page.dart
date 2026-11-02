@@ -9,6 +9,8 @@ import 'package:media_kit_video/media_kit_video.dart' show defaultEnterNativeFul
 
 import '../../core/theme/app_theme.dart';
 import '../../domain/channel.dart';
+import '../../state/epg_state.dart';
+import '../../data/xmltv.dart' show EpgIndex;
 import '../../state/library_state.dart';
 import '../../state/sources_state.dart';
 import 'playback.dart';
@@ -137,7 +139,7 @@ class _PlayerPageState extends ConsumerState<PlayerPage> {
                       child: _Overlay(
                         channel: channel,
                         title: channel?.name ?? '',
-                        group: channel?.group ?? '',
+                        group: _subtitle(channel, ref.watch(epgProvider).value),
                         onClose: _close,
                         onZap: _zap,
                         onInfo: () => setState(() => _diag = !_diag),
@@ -401,4 +403,12 @@ class _DiagnosticsPanelState extends State<DiagnosticsPanel> {
       ),
     );
   }
+}
+
+/// Sous-titre du lecteur : émission en cours et suivante si le guide est connu.
+String _subtitle(Channel? c, EpgIndex? epg) {
+  if (c == null) return '';
+  final (now, next) = nowNext(programmesOf(epg, c), DateTime.now());
+  if (now == null) return c.group;
+  return next == null ? 'En ce moment : ${now.title}' : 'En ce moment : ${now.title}  ·  Ensuite : ${next.title}';
 }

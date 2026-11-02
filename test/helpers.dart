@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
+import 'package:zelvora_tv/state/epg_state.dart';
 import 'package:zelvora_tv/app.dart';
 import 'package:zelvora_tv/data/source_repository.dart';
 import 'package:zelvora_tv/domain/channel.dart';
@@ -72,11 +73,13 @@ Future<FakePlayback> pumpApp(WidgetTester tester, {MemorySecureStore? store, htt
   addTearDown(tester.view.reset);
   final playback = FakePlayback();
   final st = store ?? MemorySecureStore();
+  final http0 = client ?? fakeHttp();
   await tester.pumpWidget(ProviderScope(
     overrides: [
       secureStoreProvider.overrideWithValue(st),
       sourceRepositoryProvider.overrideWithValue(
-          SourceRepository(store: st, client: client ?? fakeHttp())),
+          SourceRepository(store: st, client: http0)),
+      epgLoaderProvider.overrideWithValue((url, from, to) => downloadXmltv(url, from, to, client: http0)),
       playbackProvider.overrideWithValue(playback),
       nativeFullscreenProvider.overrideWithValue(false),
     ],
