@@ -56,6 +56,8 @@ void main() {
     await tester.tap(find.text('Réglages').first);
     await tester.pumpAndSettle();
     await tester.scrollUntilVisible(find.byKey(const Key('parental-switch')), 200, scrollable: find.byType(Scrollable).first);
+    await tester.ensureVisible(find.byKey(const Key('parental-switch')));
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const Key('parental-switch')));
     await tester.pumpAndSettle();
     await tester.enterText(find.byKey(const Key('parental-pin')), '1234');
@@ -72,6 +74,8 @@ void main() {
     await tester.tap(find.text('Réglages').first);
     await tester.pumpAndSettle();
     await tester.scrollUntilVisible(find.byKey(const Key('parental-switch')), 200, scrollable: find.byType(Scrollable).first);
+    await tester.ensureVisible(find.byKey(const Key('parental-switch')));
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const Key('parental-switch')));
     await tester.pumpAndSettle();
     await tester.enterText(find.byKey(const Key('parental-pin')), '0000');

@@ -10,6 +10,8 @@ import '../../features/home/home_page.dart';
 import '../../features/live/live_page.dart';
 import '../../features/movies/movies_page.dart';
 import '../../features/player/player_page.dart';
+import '../../features/profiles/profiles_page.dart';
+import '../../state/profile_state.dart';
 import '../../features/series/series_page.dart';
 import '../../features/settings/settings_page.dart';
 import '../../features/shell/app_shell.dart';
@@ -35,9 +37,12 @@ final destinations = <NavDestination>[
 ];
 
 final appRouterProvider = Provider<GoRouter>((ref) {
+  // Plusieurs profils : « Qui regarde ? » au démarrage.
+  final chooser = ref.read(profilesProvider).list.length > 1;
   return GoRouter(
-    initialLocation: '/',
+    initialLocation: chooser ? '/profiles' : '/',
     routes: [
+      GoRoute(path: '/profiles', builder: (context, state) => const ProfilesPage()),
       GoRoute(path: '/player', builder: (context, state) => const PlayerPage()),
       ShellRoute(
         builder: (context, state, child) =>

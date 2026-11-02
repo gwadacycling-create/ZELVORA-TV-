@@ -9,6 +9,7 @@ import '../domain/channel.dart';
 import '../domain/iptv_source.dart';
 import '../domain/vod.dart';
 import 'parental_state.dart';
+import 'profile_state.dart';
 import 'sources_state.dart';
 
 class VodCatalog {
@@ -39,7 +40,7 @@ XtreamClient? xtreamFor(IptvSource s, SourceRepository repo) {
 
 /// Catalogue des films et séries de toutes les sources (gardé en mémoire).
 final vodCatalogProvider = FutureProvider<VodCatalog>((ref) async {
-  final parental = ref.watch(parentalProvider).enabled;
+  final parental = ref.watch(hideAdultProvider);
   final sources = await ref.watch(sourcesProvider.future);
   final data = await ref.watch(channelsProvider.future);
   final repo = ref.read(sourceRepositoryProvider);
@@ -175,13 +176,18 @@ class ProgressNotifier extends Notifier<Map<String, WatchProgress>> {
 
   @override
   Map<String, WatchProgress> build() {
-    _load();
+    final key = _key = profileKey(kProgressKey, ref.watch(currentProfileProvider));
+    _loaded = false;
+    _load(key);
     return const {};
   }
 
-  Future<void> _load() async {
+  String _key = kProgressKey;
+
+  Future<void> _load(String key) async {
     try {
-      final raw = await ref.read(secureStoreProvider).read(kProgressKey);
+      final raw = await ref.read(secureStoreProvider).read(key);
+      if (key != _key) return; // profil changé entre-temps
       if (raw != null && !_loaded) {
         final m = jsonDecode(raw) as Map;
         state = {for (final e in m.entries) '${e.key}': WatchProgress.fromJson(Map<String, dynamic>.from(e.value as Map))};
@@ -197,7 +203,7 @@ class ProgressNotifier extends Notifier<Map<String, WatchProgress>> {
     // On garde les 100 plus récents.
     final sorted = next.entries.toList()..sort((a, b) => b.value.at.compareTo(a.value.at));
     state = Map.fromEntries(sorted.take(100));
-    await ref.read(secureStoreProvider).write(kProgressKey, jsonEncode(state.map((k, v) => MapEntry(k, v.toJson()))));
+    await ref.read(secureStoreProvider).write(_key, jsonEncode(state.map((k, v) => MapEntry(k, v.toJson()))));
   }
 
   /// « Continuer à regarder » : non terminés, du plus récent au plus ancien.

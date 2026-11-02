@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/theme/app_theme.dart';
 import '../domain/channel.dart';
+import 'profile_state.dart';
 import 'sources_state.dart';
 
 const kFavoritesKey = 'zelvora.favorites.v1';
@@ -18,13 +19,18 @@ class FavoritesNotifier extends Notifier<List<String>> {
 
   @override
   List<String> build() {
-    _load();
+    final key = _key = profileKey(kFavoritesKey, ref.watch(currentProfileProvider));
+    _loaded = false;
+    _load(key);
     return const [];
   }
 
-  Future<void> _load() async {
+  String _key = kFavoritesKey;
+
+  Future<void> _load(String key) async {
     try {
-      final raw = await ref.read(secureStoreProvider).read(kFavoritesKey);
+      final raw = await ref.read(secureStoreProvider).read(key);
+      if (key != _key) return; // profil changé entre-temps
       if (raw != null && !_loaded) state = List<String>.from(jsonDecode(raw) as List);
     } catch (_) {}
     _loaded = true;
@@ -37,7 +43,7 @@ class FavoritesNotifier extends Notifier<List<String>> {
     _loaded = true;
     final added = !state.contains(c.key);
     state = added ? [c.key, ...state] : state.where((k) => k != c.key).toList();
-    await ref.read(secureStoreProvider).write(kFavoritesKey, jsonEncode(state));
+    await ref.read(secureStoreProvider).write(_key, jsonEncode(state));
     return added;
   }
 }
@@ -59,13 +65,18 @@ class HistoryNotifier extends Notifier<List<HistoryEntry>> {
 
   @override
   List<HistoryEntry> build() {
-    _load();
+    final key = _key = profileKey(kHistoryKey, ref.watch(currentProfileProvider));
+    _loaded = false;
+    _load(key);
     return const [];
   }
 
-  Future<void> _load() async {
+  String _key = kHistoryKey;
+
+  Future<void> _load(String key) async {
     try {
-      final raw = await ref.read(secureStoreProvider).read(kHistoryKey);
+      final raw = await ref.read(secureStoreProvider).read(key);
+      if (key != _key) return; // profil changé entre-temps
       if (raw != null && !_loaded) {
         state = [for (final e in jsonDecode(raw) as List) HistoryEntry.fromJson(Map<String, dynamic>.from(e as Map))];
       }
@@ -86,7 +97,7 @@ class HistoryNotifier extends Notifier<List<HistoryEntry>> {
   }
 
   Future<void> _save() =>
-      ref.read(secureStoreProvider).write(kHistoryKey, jsonEncode([for (final e in state) e.toJson()]));
+      ref.read(secureStoreProvider).write(_key, jsonEncode([for (final e in state) e.toJson()]));
 }
 
 /// Retrouve les chaînes chargées à partir de leurs identifiants (dans l'ordre).

@@ -12,6 +12,7 @@ import 'package:zelvora_tv/data/source_repository.dart';
 import 'package:zelvora_tv/domain/channel.dart';
 import 'package:zelvora_tv/features/player/playback.dart';
 import 'package:zelvora_tv/features/player/player_page.dart';
+import 'package:zelvora_tv/state/profile_state.dart';
 import 'package:zelvora_tv/state/sources_state.dart';
 
 /// Lecteur factice : enregistre les chaînes demandées.
@@ -101,7 +102,7 @@ http.Client fakeHttp([String body = samplePlaylist]) => MockClient((req) async {
       return http.Response('not found', 404);
     });
 
-Future<FakePlayback> pumpApp(WidgetTester tester, {MemorySecureStore? store, http.Client? client}) async {
+Future<FakePlayback> pumpApp(WidgetTester tester, {MemorySecureStore? store, http.Client? client, ProfilesState? profiles}) async {
   tester.view.physicalSize = const Size(1600, 1000);
   tester.view.devicePixelRatio = 1;
   addTearDown(tester.view.reset);
@@ -116,6 +117,7 @@ Future<FakePlayback> pumpApp(WidgetTester tester, {MemorySecureStore? store, htt
       epgLoaderProvider.overrideWithValue((url, from, to) => downloadXmltv(url, from, to, client: http0)),
       playbackProvider.overrideWithValue(playback),
       nativeFullscreenProvider.overrideWithValue(false),
+      if (profiles != null) initialProfilesProvider.overrideWithValue(profiles),
     ],
     child: const ZelvoraApp(),
   ));
