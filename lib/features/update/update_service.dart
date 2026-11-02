@@ -77,8 +77,15 @@ class UpdateService {
 
 final updateServiceProvider = Provider<UpdateService>((ref) => UpdateService());
 
-/// Vérifie une fois au démarrage (Windows uniquement).
-final availableUpdateProvider = FutureProvider<UpdateInfo?>((ref) async {
-  if (!Platform.isWindows) return null;
-  return ref.read(updateServiceProvider).check();
+/// Vérifie au démarrage puis toutes les heures (Windows uniquement).
+final availableUpdateProvider = StreamProvider<UpdateInfo?>((ref) async* {
+  if (!Platform.isWindows) {
+    yield null;
+    return;
+  }
+  final service = ref.read(updateServiceProvider);
+  while (true) {
+    yield await service.check();
+    await Future<void>.delayed(const Duration(hours: 1));
+  }
 });
