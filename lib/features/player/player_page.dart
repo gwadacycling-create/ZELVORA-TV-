@@ -8,6 +8,8 @@ import 'package:go_router/go_router.dart';
 import 'package:media_kit_video/media_kit_video.dart' show defaultEnterNativeFullscreen, defaultExitNativeFullscreen;
 
 import '../../core/theme/app_theme.dart';
+import '../../domain/channel.dart';
+import '../../state/library_state.dart';
 import '../../state/sources_state.dart';
 import 'playback.dart';
 import 'volume_control.dart';
@@ -90,6 +92,10 @@ class _PlayerPageState extends ConsumerState<PlayerPage> {
         const SingleActivator(LogicalKeyboardKey.channelDown): () => _zap(1),
         const SingleActivator(LogicalKeyboardKey.keyI): () => setState(() => _diag = !_diag),
         const SingleActivator(LogicalKeyboardKey.keyM): () => _volume((a) => a.toggleMute()),
+        const SingleActivator(LogicalKeyboardKey.keyF): () {
+          if (channel != null) ref.read(favoritesProvider.notifier).toggle(channel);
+          _bump();
+        },
         const SingleActivator(LogicalKeyboardKey.audioVolumeMute): () => _volume((a) => a.toggleMute()),
         const SingleActivator(LogicalKeyboardKey.add): () => _volume((a) => a.step(5)),
         const SingleActivator(LogicalKeyboardKey.equal): () => _volume((a) => a.step(5)),
@@ -129,6 +135,7 @@ class _PlayerPageState extends ConsumerState<PlayerPage> {
                     child: IgnorePointer(
                       ignoring: !_overlay,
                       child: _Overlay(
+                        channel: channel,
                         title: channel?.name ?? '',
                         group: channel?.group ?? '',
                         onClose: _close,
@@ -151,12 +158,14 @@ class _PlayerPageState extends ConsumerState<PlayerPage> {
 
 class _Overlay extends StatelessWidget {
   const _Overlay({
+    required this.channel,
     required this.title,
     required this.group,
     required this.onClose,
     required this.onZap,
     required this.onInfo,
   });
+  final Channel? channel;
   final String title;
   final String group;
   final VoidCallback onClose;
@@ -200,6 +209,7 @@ class _Overlay extends StatelessWidget {
                     ],
                   ),
                 ),
+                if (channel != null) ...[FavoriteButton(channel: channel!, filled: true), const SizedBox(width: 12)],
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                   decoration: BoxDecoration(color: Colors.red.shade600, borderRadius: BorderRadius.circular(6)),

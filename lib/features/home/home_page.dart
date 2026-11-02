@@ -9,6 +9,7 @@ import '../../core/widgets/channel_tiles.dart';
 import '../../core/widgets/h_scroller.dart';
 import '../../core/widgets/visuals.dart';
 import '../../domain/channel.dart';
+import '../../state/library_state.dart';
 import '../../state/sources_state.dart';
 import '../player/playback.dart';
 
@@ -20,6 +21,7 @@ class HomePage extends ConsumerWidget {
     final data = ref.watch(channelsProvider).value;
     final channels = data?.channels ?? const <Channel>[];
     final current = ref.watch(currentChannelProvider);
+    final favorites = resolveChannels(ref.watch(favoritesProvider), channels);
 
     void play(Channel c) {
       ref.read(currentChannelProvider.notifier).play(c);
@@ -58,6 +60,15 @@ class HomePage extends ConsumerWidget {
                 ),
                 const SizedBox(height: 26),
               ],
+              if (favorites.isNotEmpty) ...[
+                SectionTitle(
+                  icon: Icons.favorite_rounded,
+                  title: 'Mes favoris',
+                  trailing: TextButton(onPressed: () => context.go('/favorites'), child: const Text('Tout voir ›', style: TextStyle(color: AppColors.accent))),
+                ),
+                _TileRow(channels: favorites.take(20).toList(), onTap: play),
+                const SizedBox(height: 26),
+              ],
               const SectionTitle(icon: Icons.live_tv_rounded, title: 'Chaînes populaires'),
               _TileRow(channels: channels.take(12).toList(), onTap: play),
               for (final e in topCats.take(4)) ...[
@@ -93,7 +104,10 @@ class _TileRow extends StatelessWidget {
     return HScroller(
       height: 84,
       itemCount: channels.length,
-      itemBuilder: (_, i) => ChannelBrandTile(channel: channels[i], onTap: () => onTap(channels[i])),
+      itemBuilder: (_, i) => _FavGesture(
+        channel: channels[i],
+        child: ChannelBrandTile(channel: channels[i], onTap: () => onTap(channels[i])),
+      ),
     );
   }
 }
@@ -251,5 +265,28 @@ class _Welcome extends StatelessWidget {
         step(Icons.fullscreen_rounded, '3. Profitez', 'Plein écran, zapping avec ↑ ↓ et volume avec ← →.'),
       ]),
     ]);
+  }
+}
+
+/// Clic droit ou appui long sur une tuile : ajoute / retire des favoris.
+class _FavGesture extends ConsumerWidget {
+  const _FavGesture({required this.channel, required this.child});
+  final Channel channel;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    Future<void> toggle() async {
+      final added = await ref.read(favoritesProvider.notifier).toggle(channel);
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(SnackBar(
+          content: Text(added ? '« ${channel.name} » ajoutée aux favoris' : '« ${channel.name} » retirée des favoris'),
+          duration: const Duration(seconds: 2),
+        ));
+    }
+
+    return GestureDetector(onSecondaryTap: toggle, onLongPress: toggle, child: child);
   }
 }

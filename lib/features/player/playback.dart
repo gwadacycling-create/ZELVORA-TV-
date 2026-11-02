@@ -7,6 +7,7 @@ import 'package:media_kit_video/media_kit_video.dart';
 
 import '../../data/source_repository.dart' show kIptvUserAgent;
 import '../../domain/channel.dart';
+import '../../state/library_state.dart';
 import 'reconnect.dart';
 
 /// Lecture vidéo, isolée derrière une interface pour pouvoir être remplacée
@@ -288,6 +289,7 @@ class CurrentChannelNotifier extends Notifier<Channel?> {
 
   Future<void> play(Channel c) async {
     state = c;
+    ref.read(historyProvider.notifier).add(c);
     await ref.read(playbackProvider).play(c);
   }
 
