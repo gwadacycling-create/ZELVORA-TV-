@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:http/http.dart' as http;
 
+import '../core/background.dart';
 import '../domain/channel.dart';
 import '../domain/vod.dart';
 
@@ -49,7 +50,11 @@ class XtreamClient {
         queryParameters: {'username': username, 'password': password, ...extra},
       );
 
-  Future<dynamic> _get(Map<String, String> extra) async {
+  Future<dynamic> _get(Map<String, String> extra) => _getMapped(extra, (json) => json);
+
+  /// Télécharge puis lit la réponse (et la transforme avec [map]) en arrière-plan.
+  /// [map] ne doit utiliser que des valeurs simples (pas `this`).
+  Future<T> _getMapped<T>(Map<String, String> extra, T Function(dynamic json) map) async {
     final http.Response res;
     try {
       res = await httpClient.get(_api(extra), headers: {'User-Agent': userAgent}).timeout(const Duration(seconds: 45));
@@ -63,7 +68,8 @@ class XtreamClient {
       throw XtreamException('Le serveur Xtream a répondu avec une erreur (${res.statusCode}).');
     }
     try {
-      return jsonDecode(utf8.decode(res.bodyBytes, allowMalformed: true));
+      final bytes = res.bodyBytes;
+      return await inBackground(() => map(jsonDecode(utf8.decode(bytes, allowMalformed: true))));
     } catch (_) {
       throw XtreamException('Réponse inattendue : ce serveur ne semble pas compatible Xtream Codes.');
     }
@@ -103,30 +109,33 @@ class XtreamClient {
       if (cats is List)
         for (final c in cats.whereType<Map>()) '${c['category_id']}': '${c['category_name'] ?? ''}'.trim(),
     };
-    final streams = await _get(const {'action': 'get_live_streams'});
-    if (streams is! List) return const [];
     // .ts est le format le plus compatible ; m3u8 si le serveur n'autorise que lui.
     final ext = acc.formats.isEmpty || acc.formats.contains('ts') ? 'ts' : 'm3u8';
-    final out = <Channel>[];
-    for (final s in streams.whereType<Map>()) {
-      final id = '${s['stream_id'] ?? ''}';
-      if (id.isEmpty) continue;
-      final icon = '${s['stream_icon'] ?? ''}'.trim();
-      final epg = '${s['epg_channel_id'] ?? ''}'.trim();
-      out.add(Channel(
-        name: '${s['name'] ?? 'Chaîne $id'}'.trim(),
-        url: streamUrl(id, ext),
-        group: names['${s['category_id']}'] ?? '',
-        logo: icon.isEmpty || icon == 'null' ? null : icon,
-        tvgId: epg.isEmpty || epg == 'null' ? null : epg,
-      ));
-    }
-    return out;
+    final b = base, user = username, pass = password;
+    return _getMapped(const {'action': 'get_live_streams'}, (streams) {
+      final out = <Channel>[];
+      if (streams is! List) return out;
+      for (final s in streams.whereType<Map>()) {
+        final id = '${s['stream_id'] ?? ''}';
+        if (id.isEmpty) continue;
+        final icon = '${s['stream_icon'] ?? ''}'.trim();
+        final epg = '${s['epg_channel_id'] ?? ''}'.trim();
+        out.add(Channel(
+          name: '${s['name'] ?? 'Chaîne $id'}'.trim(),
+          url: _streamUrl(b, user, pass, id, ext),
+          group: names['${s['category_id']}'] ?? '',
+          logo: icon.isEmpty || icon == 'null' ? null : icon,
+          tvgId: epg.isEmpty || epg == 'null' ? null : epg,
+        ));
+      }
+      return out;
+    });
   }
 
-  String streamUrl(String streamId, String ext) => base
-      .replace(pathSegments: ['live', username, password, '$streamId.$ext'])
-      .toString();
+  String streamUrl(String streamId, String ext) => _streamUrl(base, username, password, streamId, ext);
+
+  static String _streamUrl(Uri base, String user, String pass, String streamId, String ext) =>
+      base.replace(pathSegments: ['live', user, pass, '$streamId.$ext']).toString();
 
   // ----- Films et séries -----
 
@@ -155,9 +164,8 @@ class XtreamClient {
 
   Future<List<VodItem>> movies(String sourceId) async {
     final names = await _categories('get_vod_categories');
-    final list = await _get(const {'action': 'get_vod_streams'});
-    if (list is! List) return const [];
-    return [
+    return _getMapped(const {'action': 'get_vod_streams'}, (list) => <VodItem>[
+      if (list is List)
       for (final m in list.whereType<Map>())
         if ('${m['stream_id'] ?? ''}'.isNotEmpty)
           VodItem(
@@ -171,14 +179,13 @@ class XtreamClient {
             year: _year(m['year'] ?? m['releasedate'] ?? m['name']),
             ext: '${m['container_extension'] ?? 'mp4'}'.trim().isEmpty ? 'mp4' : '${m['container_extension']}'.trim(),
           ),
-    ];
+    ]);
   }
 
   Future<List<VodItem>> series(String sourceId) async {
     final names = await _categories('get_series_categories');
-    final list = await _get(const {'action': 'get_series'});
-    if (list is! List) return const [];
-    return [
+    return _getMapped(const {'action': 'get_series'}, (list) => <VodItem>[
+      if (list is List)
       for (final m in list.whereType<Map>())
         if ('${m['series_id'] ?? ''}'.isNotEmpty)
           VodItem(
@@ -192,7 +199,7 @@ class XtreamClient {
             year: _year(m['releaseDate'] ?? m['release_date'] ?? m['year']),
             plot: '${m['plot'] ?? ''}'.trim(),
           ),
-    ];
+    ]);
   }
 
   static VodDetails _details(Map? i) {
