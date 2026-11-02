@@ -15,11 +15,26 @@ class XtreamException implements Exception {
 
 /// Informations du compte renvoyées par le serveur.
 class XtreamAccount {
-  const XtreamAccount({required this.status, this.expiresAt, this.maxConnections, this.formats = const []});
+  const XtreamAccount({required this.status, this.expiresAt, this.maxConnections, this.formats = const [], this.utcOffsetMin});
   final String status;
   final DateTime? expiresAt;
   final int? maxConnections;
   final List<String> formats;
+
+  /// Fuseau horaire du serveur (minutes par rapport à UTC), utilisé pour le replay.
+  final int? utcOffsetMin;
+}
+
+/// Décalage horaire du serveur, déduit de son heure locale et de l'heure universelle.
+int? serverUtcOffset(dynamic serverInfo) {
+  if (serverInfo is! Map) return null;
+  final ts = int.tryParse('${serverInfo['timestamp_now'] ?? ''}');
+  final local = DateTime.tryParse('${serverInfo['time_now'] ?? ''}'.replaceFirst(' ', 'T'));
+  if (ts == null || local == null) return null;
+  final asUtc = DateTime.utc(local.year, local.month, local.day, local.hour, local.minute, local.second);
+  final minutes = asUtc.difference(DateTime.fromMillisecondsSinceEpoch(ts * 1000, isUtc: true)).inSeconds / 60;
+  final rounded = (minutes / 15).round() * 15;
+  return rounded.abs() > 14 * 60 ? null : rounded;
 }
 
 /// Client de l'API Xtream Codes (player_api.php).
@@ -98,6 +113,7 @@ class XtreamClient {
       expiresAt: expiresAt,
       maxConnections: int.tryParse('${u['max_connections'] ?? ''}'),
       formats: [for (final f in (u['allowed_output_formats'] as List? ?? const [])) '$f'],
+      utcOffsetMin: serverUtcOffset(j['server_info']),
     );
   }
 
@@ -112,6 +128,7 @@ class XtreamClient {
     // .ts est le format le plus compatible ; m3u8 si le serveur n'autorise que lui.
     final ext = acc.formats.isEmpty || acc.formats.contains('ts') ? 'ts' : 'm3u8';
     final b = base, user = username, pass = password;
+    final offset = acc.utcOffsetMin;
     return _getMapped(const {'action': 'get_live_streams'}, (streams) {
       final out = <Channel>[];
       if (streams is! List) return out;
@@ -120,17 +137,25 @@ class XtreamClient {
         if (id.isEmpty) continue;
         final icon = '${s['stream_icon'] ?? ''}'.trim();
         final epg = '${s['epg_channel_id'] ?? ''}'.trim();
+        final archive = '${s['tv_archive'] ?? ''}' == '1' ? int.tryParse('${s['tv_archive_duration'] ?? ''}') ?? 0 : 0;
         out.add(Channel(
           name: '${s['name'] ?? 'Chaîne $id'}'.trim(),
           url: _streamUrl(b, user, pass, id, ext),
           group: names['${s['category_id']}'] ?? '',
           logo: icon.isEmpty || icon == 'null' ? null : icon,
           tvgId: epg.isEmpty || epg == 'null' ? null : epg,
+          archiveDays: archive,
+          catchup: archive > 0 ? _catchupUrl(b, user, pass, id) : null,
+          catchupOffsetMin: archive > 0 ? offset : null,
         ));
       }
       return out;
     });
   }
+
+  static String _catchupUrl(Uri base, String user, String pass, String streamId) => base
+      .replace(pathSegments: ['timeshift', user, pass, kCatchupDuration, kCatchupStart, '$streamId.ts'])
+      .toString();
 
   String streamUrl(String streamId, String ext) => _streamUrl(base, username, password, streamId, ext);
 

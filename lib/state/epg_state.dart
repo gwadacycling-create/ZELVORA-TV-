@@ -35,11 +35,15 @@ final epgLoaderProvider = Provider<EpgLoader>(
 /// Guide TV de toutes les sources, rechargé toutes les 6 heures.
 final epgProvider = FutureProvider<EpgIndex>((ref) async {
   final sources = await ref.watch(sourcesProvider.future);
-  await ref.watch(channelsProvider.future); // les adresses M3U sont connues après le chargement
+  final data = await ref.watch(channelsProvider.future); // les adresses M3U sont connues après le chargement
   final repo = ref.read(sourceRepositoryProvider);
   final load = ref.read(epgLoaderProvider);
   final now = DateTime.now();
-  final from = now.subtract(const Duration(hours: 3));
+  // Avec le replay, on garde aussi les émissions des jours passés.
+  final past = replayDays(data.channels);
+  final from = past == 0
+      ? now.subtract(const Duration(hours: 3))
+      : DateTime(now.year, now.month, now.day - past);
   final to = now.add(const Duration(days: 3));
   final timer = Timer(const Duration(hours: 6), ref.invalidateSelf);
   ref.onDispose(timer.cancel);
@@ -52,6 +56,19 @@ final epgProvider = FutureProvider<EpgIndex>((ref) async {
   }
   return index;
 });
+
+/// Nombre de jours passés consultables dans le guide (replay), au plus [kMaxReplayDays].
+const kMaxReplayDays = 2;
+int replayDays(List<Channel> channels) {
+  var m = 0;
+  for (final c in channels) {
+    if (c.catchup != null && c.archiveDays > m) {
+      m = c.archiveDays;
+      if (m >= kMaxReplayDays) return kMaxReplayDays;
+    }
+  }
+  return m;
+}
 
 /// Émissions d'une chaîne (liste vide si pas de guide).
 List<Programme> programmesOf(EpgIndex? epg, Channel c) => epg?.forChannel(c) ?? const [];
