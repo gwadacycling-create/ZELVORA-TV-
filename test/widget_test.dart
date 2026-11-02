@@ -1,16 +1,8 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:zelvora_tv/app.dart';
 import 'package:zelvora_tv/core/router/app_router.dart';
 
-Future<void> pumpApp(WidgetTester tester) async {
-  tester.view.physicalSize = const Size(1600, 1000);
-  tester.view.devicePixelRatio = 1;
-  addTearDown(tester.view.reset);
-  await tester.pumpWidget(const ProviderScope(child: ZelvoraApp()));
-  await tester.pumpAndSettle();
-}
+import 'helpers.dart';
 
 void main() {
   testWidgets('Le menu latéral affiche toutes les rubriques', (tester) async {

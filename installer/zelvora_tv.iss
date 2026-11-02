@@ -21,6 +21,8 @@ MinVersion=10.0.17763
 WizardStyle=modern
 UninstallDisplayIcon={app}\zelvora_tv.exe
 PrivilegesRequiredOverridesAllowed=dialog
+CloseApplications=force
+RestartApplications=no
 
 [Languages]
 Name: "french"; MessagesFile: "compiler:Languages\French.isl"
@@ -37,3 +39,5 @@ Name: "{autodesktop}\ZELVORA TV"; Filename: "{app}\zelvora_tv.exe"; Tasks: deskt
 
 [Run]
 Filename: "{app}\zelvora_tv.exe"; Description: "{cm:LaunchProgram,ZELVORA TV}"; Flags: nowait postinstall skipifsilent
+; Après une mise à jour automatique (mode silencieux), relancer l'application.
+Filename: "{app}\zelvora_tv.exe"; Flags: nowait; Check: WizardSilent

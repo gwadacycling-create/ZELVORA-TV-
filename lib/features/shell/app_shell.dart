@@ -3,6 +3,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../core/router/app_router.dart';
 import '../../core/theme/app_theme.dart';
+import '../update/update_banner.dart';
 
 /// Structure principale : menu latéral + contenu.
 class AppShell extends StatefulWidget {
@@ -56,7 +57,12 @@ class _AppShellState extends State<AppShell> {
               ),
             ),
           ),
-          Expanded(child: FocusTraversalGroup(child: widget.child)),
+          Expanded(
+            child: Column(children: [
+              const UpdateBanner(),
+              Expanded(child: FocusTraversalGroup(child: widget.child)),
+            ]),
+          ),
         ],
       ),
     );

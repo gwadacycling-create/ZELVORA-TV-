@@ -8,6 +8,7 @@ import '../../features/history/history_page.dart';
 import '../../features/home/home_page.dart';
 import '../../features/live/live_page.dart';
 import '../../features/movies/movies_page.dart';
+import '../../features/player/player_page.dart';
 import '../../features/series/series_page.dart';
 import '../../features/settings/settings_page.dart';
 import '../../features/shell/app_shell.dart';
@@ -36,6 +37,7 @@ final appRouterProvider = Provider<GoRouter>((ref) {
   return GoRouter(
     initialLocation: '/',
     routes: [
+      GoRoute(path: '/player', builder: (context, state) => const PlayerPage()),
       ShellRoute(
         builder: (context, state, child) =>
             AppShell(location: state.uri.path, child: child),

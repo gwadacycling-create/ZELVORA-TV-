@@ -1,13 +1,21 @@
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/common.dart';
+import '../../data/source_repository.dart';
+import '../../domain/iptv_source.dart';
+import '../../state/sources_state.dart';
+import '../player/playback.dart';
+import '../update/update_service.dart';
 
-class SettingsPage extends StatelessWidget {
+class SettingsPage extends ConsumerWidget {
   const SettingsPage({super.key});
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final sources = ref.watch(sourcesProvider);
     return PageScaffold(
       title: 'Réglages',
       children: [
@@ -16,20 +24,38 @@ class SettingsPage extends StatelessWidget {
           children: [
             const Text(
               'Ajoutez uniquement des sources auxquelles vous avez légalement accès. '
-              'ZELVORA TV ne fournit aucune chaîne ni aucun contenu.',
+              'ZELVORA TV ne fournit aucune chaîne ni aucun contenu. '
+              'Vos liens et identifiants sont chiffrés sur cet appareil.',
               style: TextStyle(color: AppColors.textSecondary, height: 1.5),
             ),
             const SizedBox(height: 16),
+            ...switch (sources) {
+              AsyncData(:final value) => [for (final s in value) _SourceTile(source: s)],
+              AsyncError() => [const Text('Impossible de lire les sources enregistrées.')],
+              _ => [const LinearProgressIndicator()],
+            },
+            const SizedBox(height: 12),
             Wrap(spacing: 12, runSpacing: 12, children: [
-              _SourceButton(icon: Icons.playlist_add_rounded, label: 'Playlist M3U / M3U8'),
-              _SourceButton(icon: Icons.dns_rounded, label: 'Compte Xtream Codes'),
+              _SourceButton(
+                icon: Icons.playlist_add_rounded,
+                label: 'Playlist M3U / M3U8',
+                onPressed: () => showDialog(context: context, builder: (_) => const AddM3uDialog()),
+              ),
+              _SourceButton(
+                icon: Icons.dns_rounded,
+                label: 'Compte Xtream Codes',
+                onPressed: () => ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Les comptes Xtream Codes arrivent à la prochaine étape.')),
+                ),
+              ),
             ]),
           ],
         ),
+        const _Section(title: 'Lecture vidéo', children: [_CompatSwitch()]),
         const _Section(
           title: 'À propos',
           children: [
-            Text('ZELVORA TV · version 0.1.0', style: TextStyle(color: AppColors.textSecondary)),
+            Text('ZELVORA TV · version $kAppVersion', style: TextStyle(color: AppColors.textSecondary)),
           ],
         ),
       ],
@@ -37,17 +63,199 @@ class SettingsPage extends StatelessWidget {
   }
 }
 
+class _SourceTile extends ConsumerWidget {
+  const _SourceTile({required this.source});
+  final IptvSource source;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final count = ref.watch(channelCacheProvider)[source.id]?.length;
+    return Container(
+      margin: const EdgeInsets.only(bottom: 10),
+      decoration: BoxDecoration(color: AppColors.surfaceHigh, borderRadius: BorderRadius.circular(12)),
+      child: ListTile(
+        leading: Icon(source.kind == SourceKind.m3uFile ? Icons.insert_drive_file_rounded : Icons.link_rounded,
+            color: AppColors.accent),
+        title: Text(source.name),
+        subtitle: Text(
+          'M3U · ${source.displayLocation}${count != null ? ' · $count chaînes' : ''}',
+          style: const TextStyle(color: AppColors.textSecondary),
+        ),
+        trailing: IconButton(
+          tooltip: 'Supprimer',
+          icon: const Icon(Icons.delete_outline_rounded),
+          onPressed: () async {
+            final ok = await showDialog<bool>(
+              context: context,
+              builder: (c) => AlertDialog(
+                title: const Text('Supprimer cette source ?'),
+                content: Text('« ${source.name} » et ses chaînes seront retirées de l’application.'),
+                actions: [
+                  TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('Annuler')),
+                  FilledButton(onPressed: () => Navigator.pop(c, true), child: const Text('Supprimer')),
+                ],
+              ),
+            );
+            if (ok == true) await ref.read(sourcesProvider.notifier).remove(source.id);
+          },
+        ),
+      ),
+    );
+  }
+}
+
+/// Fenêtre d'ajout d'une playlist M3U (par lien ou par fichier).
+class AddM3uDialog extends ConsumerStatefulWidget {
+  const AddM3uDialog({super.key});
+
+  @override
+  ConsumerState<AddM3uDialog> createState() => _AddM3uDialogState();
+}
+
+class _AddM3uDialogState extends ConsumerState<AddM3uDialog> {
+  final _name = TextEditingController();
+  final _url = TextEditingController();
+  SourceKind _kind = SourceKind.m3uUrl;
+  String? _filePath;
+  bool _legal = false;
+  bool _hideUrl = true;
+  bool _busy = false;
+  String? _error;
+
+  @override
+  void dispose() {
+    _name.dispose();
+    _url.dispose();
+    super.dispose();
+  }
+
+  Future<void> _pickFile() async {
+    final f = await FilePicker.pickFile(
+      dialogTitle: 'Choisir une playlist M3U',
+      type: FileType.custom,
+      allowedExtensions: const ['m3u', 'm3u8', 'txt'],
+    );
+    if (f?.path != null) setState(() => _filePath = f!.path);
+  }
+
+  Future<void> _submit() async {
+    final location = _kind == SourceKind.m3uUrl ? _url.text.trim() : (_filePath ?? '');
+    if (location.isEmpty) {
+      setState(() => _error = _kind == SourceKind.m3uUrl ? 'Saisissez le lien de la playlist.' : 'Choisissez un fichier.');
+      return;
+    }
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    try {
+      final n = await ref.read(sourcesProvider.notifier).add(name: _name.text, kind: _kind, location: location);
+      if (!mounted) return;
+      Navigator.pop(context);
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Playlist ajoutée : $n chaînes.')));
+    } on SourceException catch (e) {
+      setState(() => _error = e.message);
+    } catch (_) {
+      setState(() => _error = 'Une erreur inattendue est survenue.');
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      backgroundColor: AppColors.surface,
+      title: const Text('Ajouter une playlist M3U'),
+      content: SizedBox(
+        width: 520,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            TextField(
+              controller: _name,
+              autofocus: true,
+              decoration: const InputDecoration(labelText: 'Nom (ex. : Ma box TV)'),
+            ),
+            const SizedBox(height: 16),
+            SegmentedButton<SourceKind>(
+              segments: const [
+                ButtonSegment(value: SourceKind.m3uUrl, label: Text('Lien'), icon: Icon(Icons.link_rounded)),
+                ButtonSegment(value: SourceKind.m3uFile, label: Text('Fichier'), icon: Icon(Icons.folder_open_rounded)),
+              ],
+              selected: {_kind},
+              onSelectionChanged: (s) => setState(() => _kind = s.first),
+            ),
+            const SizedBox(height: 12),
+            if (_kind == SourceKind.m3uUrl)
+              TextField(
+                key: const Key('m3u-url'),
+                controller: _url,
+                obscureText: _hideUrl,
+                keyboardType: TextInputType.url,
+                decoration: InputDecoration(
+                  labelText: 'Lien de la playlist (http:// ou https://)',
+                  suffixIcon: IconButton(
+                    tooltip: _hideUrl ? 'Afficher' : 'Masquer',
+                    icon: Icon(_hideUrl ? Icons.visibility_rounded : Icons.visibility_off_rounded),
+                    onPressed: () => setState(() => _hideUrl = !_hideUrl),
+                  ),
+                ),
+                onSubmitted: (_) => _legal && !_busy ? _submit() : null,
+              )
+            else
+              Row(children: [
+                OutlinedButton.icon(
+                  onPressed: _pickFile,
+                  icon: const Icon(Icons.folder_open_rounded),
+                  label: const Text('Parcourir…'),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(_filePath?.split(RegExp(r'[\\/]')).last ?? 'Aucun fichier choisi',
+                      overflow: TextOverflow.ellipsis, style: const TextStyle(color: AppColors.textSecondary)),
+                ),
+              ]),
+            const SizedBox(height: 12),
+            CheckboxListTile(
+              contentPadding: EdgeInsets.zero,
+              value: _legal,
+              onChanged: (v) => setState(() => _legal = v ?? false),
+              controlAffinity: ListTileControlAffinity.leading,
+              title: const Text('Je certifie avoir le droit d’accéder à cette source.', style: TextStyle(fontSize: 14)),
+            ),
+            if (_error != null)
+              Padding(
+                padding: const EdgeInsets.only(top: 4),
+                child: Text(_error!, style: const TextStyle(color: AppColors.accentSoft)),
+              ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(onPressed: _busy ? null : () => Navigator.pop(context), child: const Text('Annuler')),
+        FilledButton(
+          onPressed: _legal && !_busy ? _submit : null,
+          child: _busy
+              ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.black))
+              : const Text('Ajouter'),
+        ),
+      ],
+    );
+  }
+}
+
 class _SourceButton extends StatelessWidget {
-  const _SourceButton({required this.icon, required this.label});
+  const _SourceButton({required this.icon, required this.label, required this.onPressed});
   final IconData icon;
   final String label;
+  final VoidCallback onPressed;
 
   @override
   Widget build(BuildContext context) {
     return OutlinedButton.icon(
-      onPressed: () => ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Disponible à la prochaine étape.')),
-      ),
+      onPressed: onPressed,
       icon: Icon(icon),
       label: Text(label),
       style: OutlinedButton.styleFrom(
@@ -73,14 +281,51 @@ class _Section extends StatelessWidget {
         borderRadius: BorderRadius.circular(16),
         border: Border.all(color: AppColors.border),
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(title, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
-          const SizedBox(height: 12),
-          ...children,
-        ],
+      child: Material(
+        type: MaterialType.transparency,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(title, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
+            const SizedBox(height: 12),
+            ...children,
+          ],
+        ),
       ),
     );
+  }
+}
+
+class _CompatSwitch extends ConsumerStatefulWidget {
+  const _CompatSwitch();
+
+  @override
+  ConsumerState<_CompatSwitch> createState() => _CompatSwitchState();
+}
+
+class _CompatSwitchState extends ConsumerState<_CompatSwitch> {
+  late bool _value = ref.read(videoCompatModeProvider);
+
+  @override
+  Widget build(BuildContext context) {
+    final changed = _value != ref.read(videoCompatModeProvider);
+    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      SwitchListTile(
+        contentPadding: EdgeInsets.zero,
+        value: _value,
+        title: const Text('Mode compatibilité vidéo'),
+        subtitle: const Text(
+          'À activer si le son fonctionne mais que l’image reste noire. '
+          'Désactive l’accélération de la carte graphique.',
+          style: TextStyle(color: AppColors.textSecondary),
+        ),
+        onChanged: (v) async {
+          setState(() => _value = v);
+          await ref.read(secureStoreProvider).write(kVideoCompatKey, v ? '1' : '0');
+        },
+      ),
+      if (changed)
+        const Text('Redémarrez ZELVORA TV pour appliquer ce réglage.', style: TextStyle(color: AppColors.accentSoft)),
+    ]);
   }
 }
