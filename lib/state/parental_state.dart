@@ -40,6 +40,9 @@ class ParentalNotifier extends Notifier<ParentalSettings> {
 
   Future<void> enable(String pin) => _set(ParentalSettings(enabled: true, pin: pin));
 
+  /// Définit le code PIN sans changer le réglage (utilisé par les profils Enfant).
+  Future<void> setPin(String pin) => _set(ParentalSettings(enabled: state.enabled, pin: pin));
+
   /// Renvoie false si le code est faux.
   Future<bool> disable(String pin) async {
     if (state.pin != null && pin != state.pin) return false;

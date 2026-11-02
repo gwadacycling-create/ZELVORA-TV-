@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../data/source_repository.dart';
 import '../domain/channel.dart';
 import 'parental_state.dart';
+import 'profile_state.dart';
 import '../domain/iptv_source.dart';
 
 final secureStoreProvider = Provider<SecureStore>((ref) => const SystemSecureStore());
@@ -103,7 +104,7 @@ class ChannelsData {
 }
 
 final channelsProvider = FutureProvider<ChannelsData>((ref) async {
-  final parental = ref.watch(parentalProvider).enabled;
+  final parental = ref.watch(hideAdultProvider);
   final sources = await ref.watch(sourcesProvider.future);
   final repo = ref.read(sourceRepositoryProvider);
   final cache = ref.read(channelCacheProvider);
