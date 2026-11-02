@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -9,6 +10,7 @@ import 'package:media_kit_video/media_kit_video.dart' show defaultEnterNativeFul
 import '../../core/theme/app_theme.dart';
 import '../../state/sources_state.dart';
 import 'playback.dart';
+import 'volume_control.dart';
 
 /// Lecteur plein écran.
 /// Clavier / télécommande : Échap ou Retour = quitter, Haut/Bas = chaîne
@@ -61,6 +63,11 @@ class _PlayerPageState extends ConsumerState<PlayerPage> {
     _bump();
   }
 
+  void _volume(Future<void> Function(VolumeActions) f) {
+    f(VolumeActions(ref));
+    _bump();
+  }
+
   void _close() {
     if (context.canPop()) {
       context.pop();
@@ -82,6 +89,17 @@ class _PlayerPageState extends ConsumerState<PlayerPage> {
         const SingleActivator(LogicalKeyboardKey.channelUp): () => _zap(-1),
         const SingleActivator(LogicalKeyboardKey.channelDown): () => _zap(1),
         const SingleActivator(LogicalKeyboardKey.keyI): () => setState(() => _diag = !_diag),
+        const SingleActivator(LogicalKeyboardKey.keyM): () => _volume((a) => a.toggleMute()),
+        const SingleActivator(LogicalKeyboardKey.audioVolumeMute): () => _volume((a) => a.toggleMute()),
+        const SingleActivator(LogicalKeyboardKey.add): () => _volume((a) => a.step(5)),
+        const SingleActivator(LogicalKeyboardKey.equal): () => _volume((a) => a.step(5)),
+        const SingleActivator(LogicalKeyboardKey.numpadAdd): () => _volume((a) => a.step(5)),
+        const SingleActivator(LogicalKeyboardKey.audioVolumeUp): () => _volume((a) => a.step(5)),
+        const SingleActivator(LogicalKeyboardKey.arrowRight): () => _volume((a) => a.step(5)),
+        const SingleActivator(LogicalKeyboardKey.minus): () => _volume((a) => a.step(-5)),
+        const SingleActivator(LogicalKeyboardKey.numpadSubtract): () => _volume((a) => a.step(-5)),
+        const SingleActivator(LogicalKeyboardKey.audioVolumeDown): () => _volume((a) => a.step(-5)),
+        const SingleActivator(LogicalKeyboardKey.arrowLeft): () => _volume((a) => a.step(-5)),
         const SingleActivator(LogicalKeyboardKey.space): () {
           playback.togglePause();
           _bump();
@@ -95,33 +113,34 @@ class _PlayerPageState extends ConsumerState<PlayerPage> {
         autofocus: true,
         child: Scaffold(
           backgroundColor: Colors.black,
-          body: MouseRegion(
-            onHover: (_) => _bump(),
-            child: Stack(
-              fit: StackFit.expand,
-              children: [
-                GestureDetector(
-                  onTap: _bump,
-                  onDoubleTap: _close,
-                  child: playback.view(),
-                ),
-                AnimatedOpacity(
-                  opacity: _overlay ? 1 : 0,
-                  duration: const Duration(milliseconds: 250),
-                  child: IgnorePointer(
-                    ignoring: !_overlay,
-                    child: _Overlay(
-                      title: channel?.name ?? '',
-                      group: channel?.group ?? '',
-                      onClose: _close,
-                      onZap: _zap,
-                      onInfo: () => setState(() => _diag = !_diag),
+          body: Listener(
+            onPointerSignal: (e) {
+              if (e is PointerScrollEvent) _volume((a) => a.step(e.scrollDelta.dy > 0 ? -5 : 5));
+            },
+            child: MouseRegion(
+              onHover: (_) => _bump(),
+              child: Stack(
+                fit: StackFit.expand,
+                children: [
+                  GestureDetector(onTap: _bump, onDoubleTap: _close, child: playback.view()),
+                  AnimatedOpacity(
+                    opacity: _overlay ? 1 : 0,
+                    duration: const Duration(milliseconds: 250),
+                    child: IgnorePointer(
+                      ignoring: !_overlay,
+                      child: _Overlay(
+                        title: channel?.name ?? '',
+                        group: channel?.group ?? '',
+                        onClose: _close,
+                        onZap: _zap,
+                        onInfo: () => setState(() => _diag = !_diag),
+                      ),
                     ),
                   ),
-                ),
-                const _PlaybackStatus(),
-                if (_diag) Positioned(top: 100, right: 32, child: DiagnosticsPanel(playback: playback)),
-              ],
+                  const _PlaybackStatus(),
+                  if (_diag) Positioned(top: 100, right: 32, child: DiagnosticsPanel(playback: playback)),
+                ],
+              ),
             ),
           ),
         ),
@@ -131,7 +150,13 @@ class _PlayerPageState extends ConsumerState<PlayerPage> {
 }
 
 class _Overlay extends StatelessWidget {
-  const _Overlay({required this.title, required this.group, required this.onClose, required this.onZap, required this.onInfo});
+  const _Overlay({
+    required this.title,
+    required this.group,
+    required this.onClose,
+    required this.onZap,
+    required this.onInfo,
+  });
   final String title;
   final String group;
   final VoidCallback onClose;
@@ -154,33 +179,66 @@ class _Overlay extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Row(children: [
-              IconButton.filledTonal(onPressed: onClose, icon: const Icon(Icons.arrow_back_rounded), tooltip: 'Retour (Échap)'),
-              const SizedBox(width: 16),
-              Expanded(
-                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  Text(title, style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w800), overflow: TextOverflow.ellipsis),
-                  if (group.isNotEmpty) Text(group, style: const TextStyle(color: AppColors.textSecondary)),
-                ]),
-              ),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                decoration: BoxDecoration(color: Colors.red.shade600, borderRadius: BorderRadius.circular(6)),
-                child: const Text('EN DIRECT', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 12)),
-              ),
-            ]),
+            Row(
+              children: [
+                IconButton.filledTonal(
+                  onPressed: onClose,
+                  icon: const Icon(Icons.arrow_back_rounded),
+                  tooltip: 'Retour (Échap)',
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        title,
+                        style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w800),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      if (group.isNotEmpty) Text(group, style: const TextStyle(color: AppColors.textSecondary)),
+                    ],
+                  ),
+                ),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  decoration: BoxDecoration(color: Colors.red.shade600, borderRadius: BorderRadius.circular(6)),
+                  child: const Text('EN DIRECT', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 12)),
+                ),
+              ],
+            ),
             const Spacer(),
-            Row(children: [
-              IconButton.filledTonal(onPressed: () => onZap(-1), icon: const Icon(Icons.keyboard_arrow_up_rounded), tooltip: 'Chaîne précédente'),
-              const SizedBox(width: 8),
-              IconButton.filledTonal(onPressed: () => onZap(1), icon: const Icon(Icons.keyboard_arrow_down_rounded), tooltip: 'Chaîne suivante'),
-              const SizedBox(width: 16),
-              const Expanded(
-                child: Text('↑ ↓ changer de chaîne · Espace pause · I infos techniques · Échap quitter',
-                    style: TextStyle(color: AppColors.textSecondary)),
-              ),
-              IconButton.filledTonal(onPressed: onInfo, icon: const Icon(Icons.info_outline_rounded), tooltip: 'Infos techniques (I)'),
-            ]),
+            Row(
+              children: [
+                IconButton.filledTonal(
+                  onPressed: () => onZap(-1),
+                  icon: const Icon(Icons.keyboard_arrow_up_rounded),
+                  tooltip: 'Chaîne précédente',
+                ),
+                const SizedBox(width: 8),
+                IconButton.filledTonal(
+                  onPressed: () => onZap(1),
+                  icon: const Icon(Icons.keyboard_arrow_down_rounded),
+                  tooltip: 'Chaîne suivante',
+                ),
+                const SizedBox(width: 16),
+                const SizedBox(width: 8),
+                const VolumeControl(),
+                const SizedBox(width: 16),
+                const Expanded(
+                  child: Text(
+                    '↑ ↓ chaîne · ← → ou molette volume · M muet · Espace pause · I infos · Échap quitter',
+                    style: TextStyle(color: AppColors.textSecondary),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+                IconButton.filledTonal(
+                  onPressed: onInfo,
+                  icon: const Icon(Icons.info_outline_rounded),
+                  tooltip: 'Infos techniques (I)',
+                ),
+              ],
+            ),
           ],
         ),
       ),
@@ -241,13 +299,19 @@ class _PlaybackStatusState extends State<PlaybackStatus> {
           padding: const EdgeInsets.all(20),
           margin: const EdgeInsets.all(20),
           decoration: BoxDecoration(color: const Color(0xDD000000), borderRadius: BorderRadius.circular(14)),
-          child: const Column(mainAxisSize: MainAxisSize.min, children: [
-            Icon(Icons.error_outline_rounded, color: AppColors.accent, size: 36),
-            SizedBox(height: 10),
-            Text('Cette chaîne ne peut pas être lue pour le moment.', textAlign: TextAlign.center),
-            Text('Le flux est peut-être hors ligne ou indisponible.',
-                textAlign: TextAlign.center, style: TextStyle(color: AppColors.textSecondary)),
-          ]),
+          child: const Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.error_outline_rounded, color: AppColors.accent, size: 36),
+              SizedBox(height: 10),
+              Text('Cette chaîne ne peut pas être lue pour le moment.', textAlign: TextAlign.center),
+              Text(
+                'Le flux est peut-être hors ligne ou indisponible.',
+                textAlign: TextAlign.center,
+                style: TextStyle(color: AppColors.textSecondary),
+              ),
+            ],
+          ),
         ),
       );
     }
@@ -309,10 +373,16 @@ class _DiagnosticsPanelState extends State<DiagnosticsPanel> {
             for (final e in _data.entries)
               Padding(
                 padding: const EdgeInsets.only(bottom: 6),
-                child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  SizedBox(width: 140, child: Text(e.key, style: const TextStyle(color: AppColors.textSecondary))),
-                  Expanded(child: Text(e.value)),
-                ]),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    SizedBox(
+                      width: 140,
+                      child: Text(e.key, style: const TextStyle(color: AppColors.textSecondary)),
+                    ),
+                    Expanded(child: Text(e.value)),
+                  ],
+                ),
               ),
           ],
         ),

@@ -7,6 +7,7 @@ import 'package:http/http.dart' as http;
 import '../domain/channel.dart';
 import '../domain/iptv_source.dart';
 import 'm3u_parser.dart';
+import 'xtream_client.dart';
 
 /// Coffre-fort clé/valeur (chiffré par le système en production).
 abstract class SecureStore {
@@ -65,6 +66,21 @@ class SourceRepository {
   Future<List<Channel>> fetchChannels(IptvSource source) async {
     final String content;
     switch (source.kind) {
+      case SourceKind.xtream:
+        final client = XtreamClient(
+          server: source.location,
+          username: source.username ?? '',
+          password: source.password ?? '',
+          httpClient: _client,
+          userAgent: kIptvUserAgent,
+        );
+        try {
+          final list = await client.liveChannels();
+          if (list.isEmpty) throw SourceException('Ce compte ne contient aucune chaîne en direct.');
+          return [for (final c in list) c.withSource(source.id)];
+        } on XtreamException catch (e) {
+          throw SourceException(e.message);
+        }
       case SourceKind.m3uUrl:
         final uri = Uri.tryParse(source.location);
         if (uri == null || !(uri.isScheme('http') || uri.isScheme('https'))) {

@@ -75,6 +75,24 @@ void main() {
     await tester.sendKeyEvent(LogicalKeyboardKey.space);
     expect(playback.pauses, 1);
 
+    // Volume : touches, muet, mémorisation.
+    await tester.sendKeyEvent(LogicalKeyboardKey.minus);
+    await tester.sendKeyEvent(LogicalKeyboardKey.arrowLeft);
+    await tester.pump();
+    expect(playback.volume, 90);
+    await tester.sendKeyEvent(LogicalKeyboardKey.keyM);
+    await tester.pump();
+    expect(playback.volume, 0);
+    await tester.sendKeyEvent(LogicalKeyboardKey.keyM);
+    await tester.pump();
+    expect(playback.volume, 90);
+    await tester.tap(find.byKey(const Key('volume-mute')));
+    await tester.pump();
+    expect(playback.volume, 0);
+    await tester.tap(find.byKey(const Key('volume-mute')));
+    await tester.pump(const Duration(seconds: 1));
+    expect(store.data['zelvora.volume'], '90');
+
     // Infos techniques (touche I).
     await tester.sendKeyEvent(LogicalKeyboardKey.keyI);
     await tester.pump();

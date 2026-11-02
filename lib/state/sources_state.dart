@@ -16,14 +16,22 @@ class SourcesNotifier extends AsyncNotifier<List<IptvSource>> {
 
   /// Vérifie la source (téléchargement + lecture) avant de l'enregistrer.
   /// Lève [SourceException] avec un message clair en cas de problème.
-  Future<int> add({required String name, required SourceKind kind, required String location}) async {
+  Future<int> add({
+    required String name,
+    required SourceKind kind,
+    required String location,
+    String? username,
+    String? password,
+  }) async {
     final repo = ref.read(sourceRepositoryProvider);
     final source = IptvSource(
       id: DateTime.now().microsecondsSinceEpoch.toRadixString(36),
-      name: name.trim().isEmpty ? 'Ma playlist' : name.trim(),
+      name: name.trim().isEmpty ? (kind == SourceKind.xtream ? 'Mon compte Xtream' : 'Ma playlist') : name.trim(),
       kind: kind,
       location: location.trim(),
       addedAt: DateTime.now(),
+      username: username?.trim(),
+      password: password,
     );
     final channels = await repo.fetchChannels(source);
     ref.read(channelCacheProvider)[source.id] = channels;
