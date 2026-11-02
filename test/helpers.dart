@@ -22,7 +22,26 @@ class FakePlayback implements Playback {
   final _buf = StreamController<bool>.broadcast();
 
   @override
-  Future<void> play(Channel channel) async => played.add(channel);
+  Future<void> play(Channel channel, {Duration? start}) async {
+    played.add(channel);
+    lastStart = start;
+  }
+
+  Duration? lastStart;
+  Duration pos = Duration.zero;
+  Duration dur = Duration.zero;
+  final _posCtl = StreamController<Duration>.broadcast();
+  @override
+  Duration get position => pos;
+  @override
+  Duration get duration => dur;
+  @override
+  Stream<Duration> get positionStream => _posCtl.stream;
+  @override
+  Future<void> seek(Duration to) async {
+    pos = to;
+    _posCtl.add(to);
+  }
   @override
   Future<void> togglePause() async => pauses++;
   double _vol = 100;

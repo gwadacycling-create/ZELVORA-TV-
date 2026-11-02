@@ -8,7 +8,11 @@ class Channel {
     this.tvgId,
     this.headers = const {},
     this.sourceId = '',
+    this.vod = false,
   });
+
+  /// Film ou épisode (lecture à la demande, avec barre de progression).
+  final bool vod;
 
   final String name;
   final String url;
@@ -31,5 +35,6 @@ class Channel {
         tvgId: tvgId,
         headers: headers,
         sourceId: id,
+        vod: vod,
       );
 }

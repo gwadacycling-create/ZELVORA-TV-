@@ -12,6 +12,8 @@ import '../../domain/channel.dart';
 import '../../state/epg_state.dart';
 import '../../data/xmltv.dart' show EpgIndex;
 import '../../state/library_state.dart';
+import '../../state/vod_state.dart';
+import '../vod/vod_details.dart' show fmtDuration;
 import '../../state/sources_state.dart';
 import 'playback.dart';
 import 'volume_control.dart';
@@ -34,16 +36,55 @@ class _PlayerPageState extends ConsumerState<PlayerPage> {
   bool _diag = false;
   Timer? _hide;
   late final bool _native = ref.read(nativeFullscreenProvider);
+  Timer? _save;
 
   @override
   void initState() {
     super.initState();
     if (_native) defaultEnterNativeFullscreen();
     _bump();
+    _save = Timer.periodic(const Duration(seconds: 10), (_) => _saveProgress());
+  }
+
+  /// Films / séries : mémorise la position pour reprendre plus tard.
+  void _saveProgress() {
+    if (!mounted) return;
+    final c = ref.read(currentChannelProvider);
+    final cur = ref.read(currentVodProvider);
+    if (c == null || !c.vod || cur == null) return;
+    final pb = ref.read(playbackProvider);
+    if (pb.duration <= Duration.zero || pb.position <= Duration.zero) return;
+    final notifier = ref.read(progressProvider.notifier);
+    final p = WatchProgress(
+      item: cur.item,
+      episodeId: cur.episodeId,
+      label: cur.label,
+      position: pb.position,
+      duration: pb.duration,
+      at: DateTime.now(),
+    );
+    // Hors de la construction de l'écran (appelé aussi à la fermeture du lecteur).
+    Future.microtask(() => notifier.save(p));
+  }
+
+  void _seek(int seconds) {
+    final pb = ref.read(playbackProvider);
+    var to = pb.position + Duration(seconds: seconds);
+    if (to < Duration.zero) to = Duration.zero;
+    if (pb.duration > Duration.zero && to > pb.duration) to = pb.duration;
+    pb.seek(to);
+    _bump();
+  }
+
+  @override
+  void deactivate() {
+    _saveProgress();
+    super.deactivate();
   }
 
   @override
   void dispose() {
+    _save?.cancel();
     _hide?.cancel();
     if (_native) defaultExitNativeFullscreen();
     super.dispose();
@@ -84,12 +125,13 @@ class _PlayerPageState extends ConsumerState<PlayerPage> {
   Widget build(BuildContext context) {
     final playback = ref.watch(playbackProvider);
     final channel = ref.watch(currentChannelProvider);
+    final vod = channel?.vod ?? false;
     return CallbackShortcuts(
       bindings: {
         const SingleActivator(LogicalKeyboardKey.escape): _close,
         const SingleActivator(LogicalKeyboardKey.goBack): _close,
-        const SingleActivator(LogicalKeyboardKey.arrowUp): () => _zap(-1),
-        const SingleActivator(LogicalKeyboardKey.arrowDown): () => _zap(1),
+        const SingleActivator(LogicalKeyboardKey.arrowUp): () => vod ? _volume((a) => a.step(5)) : _zap(-1),
+        const SingleActivator(LogicalKeyboardKey.arrowDown): () => vod ? _volume((a) => a.step(-5)) : _zap(1),
         const SingleActivator(LogicalKeyboardKey.channelUp): () => _zap(-1),
         const SingleActivator(LogicalKeyboardKey.channelDown): () => _zap(1),
         const SingleActivator(LogicalKeyboardKey.keyI): () => setState(() => _diag = !_diag),
@@ -103,11 +145,11 @@ class _PlayerPageState extends ConsumerState<PlayerPage> {
         const SingleActivator(LogicalKeyboardKey.equal): () => _volume((a) => a.step(5)),
         const SingleActivator(LogicalKeyboardKey.numpadAdd): () => _volume((a) => a.step(5)),
         const SingleActivator(LogicalKeyboardKey.audioVolumeUp): () => _volume((a) => a.step(5)),
-        const SingleActivator(LogicalKeyboardKey.arrowRight): () => _volume((a) => a.step(5)),
+        const SingleActivator(LogicalKeyboardKey.arrowRight): () => vod ? _seek(10) : _volume((a) => a.step(5)),
         const SingleActivator(LogicalKeyboardKey.minus): () => _volume((a) => a.step(-5)),
         const SingleActivator(LogicalKeyboardKey.numpadSubtract): () => _volume((a) => a.step(-5)),
         const SingleActivator(LogicalKeyboardKey.audioVolumeDown): () => _volume((a) => a.step(-5)),
-        const SingleActivator(LogicalKeyboardKey.arrowLeft): () => _volume((a) => a.step(-5)),
+        const SingleActivator(LogicalKeyboardKey.arrowLeft): () => vod ? _seek(-10) : _volume((a) => a.step(-5)),
         const SingleActivator(LogicalKeyboardKey.space): () {
           playback.togglePause();
           _bump();
@@ -138,6 +180,8 @@ class _PlayerPageState extends ConsumerState<PlayerPage> {
                       ignoring: !_overlay,
                       child: _Overlay(
                         channel: channel,
+                        playback: playback,
+                        onSeek: _seek,
                         title: channel?.name ?? '',
                         group: _subtitle(channel, ref.watch(epgProvider).value),
                         onClose: _close,
@@ -161,6 +205,8 @@ class _PlayerPageState extends ConsumerState<PlayerPage> {
 class _Overlay extends StatelessWidget {
   const _Overlay({
     required this.channel,
+    required this.playback,
+    required this.onSeek,
     required this.title,
     required this.group,
     required this.onClose,
@@ -168,6 +214,8 @@ class _Overlay extends StatelessWidget {
     required this.onInfo,
   });
   final Channel? channel;
+  final Playback playback;
+  final void Function(int) onSeek;
   final String title;
   final String group;
   final VoidCallback onClose;
@@ -192,11 +240,7 @@ class _Overlay extends StatelessWidget {
           children: [
             Row(
               children: [
-                IconButton.filledTonal(
-                  onPressed: onClose,
-                  icon: const Icon(Icons.arrow_back_rounded),
-                  tooltip: 'Retour (Échap)',
-                ),
+                IconButton.filledTonal(onPressed: onClose, icon: const Icon(Icons.arrow_back_rounded), tooltip: 'Retour (Échap)'),
                 const SizedBox(width: 16),
                 Expanded(
                   child: Column(
@@ -211,44 +255,65 @@ class _Overlay extends StatelessWidget {
                     ],
                   ),
                 ),
-                if (channel != null) ...[FavoriteButton(channel: channel!, filled: true), const SizedBox(width: 12)],
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                  decoration: BoxDecoration(color: Colors.red.shade600, borderRadius: BorderRadius.circular(6)),
-                  child: const Text('EN DIRECT', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 12)),
-                ),
+                if (channel != null && !channel!.vod) ...[FavoriteButton(channel: channel!, filled: true), const SizedBox(width: 12)],
+                if (!(channel?.vod ?? false))
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                    decoration: BoxDecoration(color: Colors.red.shade600, borderRadius: BorderRadius.circular(6)),
+                    child: const Text('EN DIRECT', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 12)),
+                  ),
               ],
             ),
             const Spacer(),
+            if (channel?.vod ?? false) ...[SeekBar(playback: playback), const SizedBox(height: 8)],
             Row(
               children: [
-                IconButton.filledTonal(
-                  onPressed: () => onZap(-1),
-                  icon: const Icon(Icons.keyboard_arrow_up_rounded),
-                  tooltip: 'Chaîne précédente',
-                ),
-                const SizedBox(width: 8),
-                IconButton.filledTonal(
-                  onPressed: () => onZap(1),
-                  icon: const Icon(Icons.keyboard_arrow_down_rounded),
-                  tooltip: 'Chaîne suivante',
-                ),
+                if (channel?.vod ?? false) ...[
+                  IconButton.filledTonal(
+                    onPressed: () => onSeek(-10),
+                    icon: const Icon(Icons.replay_10_rounded),
+                    tooltip: 'Reculer de 10 s (←)',
+                  ),
+                  const SizedBox(width: 8),
+                  IconButton.filledTonal(
+                    key: const Key('vod-pause'),
+                    onPressed: playback.togglePause,
+                    icon: const Icon(Icons.pause_rounded),
+                    tooltip: 'Lecture / pause (Espace)',
+                  ),
+                  const SizedBox(width: 8),
+                  IconButton.filledTonal(
+                    onPressed: () => onSeek(10),
+                    icon: const Icon(Icons.forward_10_rounded),
+                    tooltip: 'Avancer de 10 s (→)',
+                  ),
+                ] else ...[
+                  IconButton.filledTonal(
+                    onPressed: () => onZap(-1),
+                    icon: const Icon(Icons.keyboard_arrow_up_rounded),
+                    tooltip: 'Chaîne précédente',
+                  ),
+                  const SizedBox(width: 8),
+                  IconButton.filledTonal(
+                    onPressed: () => onZap(1),
+                    icon: const Icon(Icons.keyboard_arrow_down_rounded),
+                    tooltip: 'Chaîne suivante',
+                  ),
+                ],
                 const SizedBox(width: 16),
                 const SizedBox(width: 8),
                 const VolumeControl(),
                 const SizedBox(width: 16),
-                const Expanded(
+                Expanded(
                   child: Text(
-                    '↑ ↓ chaîne · ← → ou molette volume · M muet · Espace pause · I infos · Échap quitter',
-                    style: TextStyle(color: AppColors.textSecondary),
+                    (channel?.vod ?? false)
+                        ? '← → avancer/reculer · ↑ ↓ ou molette volume · M muet · Espace pause · Échap quitter'
+                        : '↑ ↓ chaîne · ← → ou molette volume · M muet · F favori · Espace pause · I infos · Échap quitter',
+                    style: const TextStyle(color: AppColors.textSecondary),
                     overflow: TextOverflow.ellipsis,
                   ),
                 ),
-                IconButton.filledTonal(
-                  onPressed: onInfo,
-                  icon: const Icon(Icons.info_outline_rounded),
-                  tooltip: 'Infos techniques (I)',
-                ),
+                IconButton.filledTonal(onPressed: onInfo, icon: const Icon(Icons.info_outline_rounded), tooltip: 'Infos techniques (I)'),
               ],
             ),
           ],
@@ -411,4 +476,52 @@ String _subtitle(Channel? c, EpgIndex? epg) {
   final (now, next) = nowNext(programmesOf(epg, c), DateTime.now());
   if (now == null) return c.group;
   return next == null ? 'En ce moment : ${now.title}' : 'En ce moment : ${now.title}  ·  Ensuite : ${next.title}';
+}
+
+/// Barre de progression des films et séries.
+class SeekBar extends StatefulWidget {
+  const SeekBar({super.key, required this.playback});
+  final Playback playback;
+
+  @override
+  State<SeekBar> createState() => _SeekBarState();
+}
+
+class _SeekBarState extends State<SeekBar> {
+  double? _drag;
+
+  @override
+  Widget build(BuildContext context) {
+    return StreamBuilder<Duration>(
+      stream: widget.playback.positionStream,
+      builder: (context, _) {
+        final pos = widget.playback.position;
+        final dur = widget.playback.duration;
+        final max = dur.inMilliseconds <= 0 ? 1.0 : dur.inMilliseconds.toDouble();
+        final value = (_drag ?? pos.inMilliseconds.toDouble()).clamp(0.0, max);
+        return Row(
+          children: [
+            Text(
+              fmtDuration(Duration(milliseconds: value.round())),
+              style: const TextStyle(fontWeight: FontWeight.w600),
+            ),
+            Expanded(
+              child: Slider(
+                key: const Key('vod-seek'),
+                value: value,
+                max: max,
+                activeColor: AppColors.accent,
+                onChanged: dur > Duration.zero ? (v) => setState(() => _drag = v) : null,
+                onChangeEnd: (v) {
+                  widget.playback.seek(Duration(milliseconds: v.round()));
+                  setState(() => _drag = null);
+                },
+              ),
+            ),
+            Text(dur > Duration.zero ? fmtDuration(dur) : '--:--', style: const TextStyle(color: AppColors.textSecondary)),
+          ],
+        );
+      },
+    );
+  }
 }
