@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
 
+import '../../data/source_repository.dart' show kIptvUserAgent;
 import '../../domain/channel.dart';
 
 /// Lecture vidéo, isolée derrière une interface pour pouvoir être remplacée
@@ -27,7 +28,7 @@ class MediaKitPlayback implements Playback {
 
   @override
   Future<void> play(Channel channel) =>
-      _player.open(Media(channel.url, httpHeaders: channel.headers.isEmpty ? null : channel.headers));
+      _player.open(Media(channel.url, httpHeaders: {'User-Agent': kIptvUserAgent, ...channel.headers}));
 
   @override
   Future<void> togglePause() => _player.playOrPause();

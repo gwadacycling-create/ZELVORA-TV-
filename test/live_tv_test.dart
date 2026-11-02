@@ -98,7 +98,7 @@ void main() {
     final store = MemorySecureStore();
     await pumpApp(tester, store: store);
     await addPlaylist(tester, 'https://example.com/inconnue.m3u');
-    expect(find.textContaining('erreur (404)'), findsOneWidget);
+    expect(find.textContaining('introuvable sur le serveur (404)'), findsOneWidget);
     expect(store.data, isEmpty);
   });
 

@@ -64,6 +64,39 @@ void main() {
   });
 
   group('SourceRepository', () {
+    test('envoie un User-Agent de lecteur reconnu', () async {
+      String? ua;
+      final repo = SourceRepository(
+        store: MemorySecureStore(),
+        client: MockClient((r) async {
+          ua = r.headers['User-Agent'];
+          return http.Response('#EXTM3U\n#EXTINF:-1,A\nhttp://s/a\n', 200);
+        }),
+      );
+      await repo.fetchChannels(IptvSource(id: 'x', name: 'n', kind: SourceKind.m3uUrl, location: 'http://h/p', addedAt: DateTime(2026)));
+      expect(ua, kIptvUserAgent);
+    });
+
+    test('un lien direct vers un flux HLS devient une chaîne', () async {
+      final repo = SourceRepository(
+        store: MemorySecureStore(),
+        client: MockClient((r) async => http.Response(
+            '#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=1280000\nlow/index.m3u8\n', 200,
+            headers: {'content-type': 'application/vnd.apple.mpegurl'})),
+      );
+      final list = await repo.fetchChannels(IptvSource(
+          id: 'x', name: 'Mon flux', kind: SourceKind.m3uUrl, location: 'https://cdn.test/master.m3u8', addedAt: DateTime(2026)));
+      expect(list.single.name, 'Mon flux');
+      expect(list.single.url, 'https://cdn.test/master.m3u8');
+    });
+
+    test('accès refusé : message explicite', () async {
+      final repo = SourceRepository(store: MemorySecureStore(), client: MockClient((r) async => http.Response('', 403)));
+      await expectLater(
+          repo.fetchChannels(IptvSource(id: 'x', name: 'n', kind: SourceKind.m3uUrl, location: 'http://h/p', addedAt: DateTime(2026))),
+          throwsA(predicate((e) => e.toString().contains('Accès refusé'))));
+    });
+
     IptvSource src(String loc, [SourceKind k = SourceKind.m3uUrl]) =>
         IptvSource(id: 's1', name: 'Test', kind: k, location: loc, addedAt: DateTime(2026));
 
@@ -96,7 +129,7 @@ void main() {
       );
       expect(() => repo.fetchChannels(src('ftp://h/x')), throwsA(isA<SourceException>()));
       await expectLater(repo.fetchChannels(src('https://h/404')),
-          throwsA(predicate((e) => e.toString().contains('404'))));
+          throwsA(predicate((e) => e.toString().contains('introuvable'))));
       await expectLater(repo.fetchChannels(src('https://h/page')),
           throwsA(predicate((e) => e.toString().contains('Aucune chaîne'))));
       await expectLater(repo.fetchChannels(src('C:/x.m3u', SourceKind.m3uFile)),
