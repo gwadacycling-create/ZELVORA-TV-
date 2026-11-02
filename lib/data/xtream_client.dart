@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 
 import '../domain/channel.dart';
+import '../domain/vod.dart';
 
 class XtreamException implements Exception {
   XtreamException(this.message);
@@ -126,4 +127,132 @@ class XtreamClient {
   String streamUrl(String streamId, String ext) => base
       .replace(pathSegments: ['live', username, password, '$streamId.$ext'])
       .toString();
+
+  // ----- Films et séries -----
+
+  static String? _img(dynamic v) {
+    final s = '${v ?? ''}'.trim();
+    return s.isEmpty || s == 'null' || !s.startsWith('http') ? null : s;
+  }
+
+  static double? _rating(dynamic v) {
+    final r = double.tryParse('${v ?? ''}');
+    return r == null || r <= 0 ? null : r;
+  }
+
+  static String? _year(dynamic v) {
+    final m = RegExp(r'(19|20)\d{2}').firstMatch('${v ?? ''}');
+    return m?.group(0);
+  }
+
+  Future<Map<String, String>> _categories(String action) async {
+    final cats = await _get({'action': action});
+    return {
+      if (cats is List)
+        for (final c in cats.whereType<Map>()) '${c['category_id']}': '${c['category_name'] ?? ''}'.trim(),
+    };
+  }
+
+  Future<List<VodItem>> movies(String sourceId) async {
+    final names = await _categories('get_vod_categories');
+    final list = await _get(const {'action': 'get_vod_streams'});
+    if (list is! List) return const [];
+    return [
+      for (final m in list.whereType<Map>())
+        if ('${m['stream_id'] ?? ''}'.isNotEmpty)
+          VodItem(
+            kind: VodKind.movie,
+            id: '${m['stream_id']}',
+            name: '${m['name'] ?? ''}'.trim(),
+            sourceId: sourceId,
+            poster: _img(m['stream_icon']),
+            category: names['${m['category_id']}'] ?? '',
+            rating: _rating(m['rating']),
+            year: _year(m['year'] ?? m['releasedate'] ?? m['name']),
+            ext: '${m['container_extension'] ?? 'mp4'}'.trim().isEmpty ? 'mp4' : '${m['container_extension']}'.trim(),
+          ),
+    ];
+  }
+
+  Future<List<VodItem>> series(String sourceId) async {
+    final names = await _categories('get_series_categories');
+    final list = await _get(const {'action': 'get_series'});
+    if (list is! List) return const [];
+    return [
+      for (final m in list.whereType<Map>())
+        if ('${m['series_id'] ?? ''}'.isNotEmpty)
+          VodItem(
+            kind: VodKind.series,
+            id: '${m['series_id']}',
+            name: '${m['name'] ?? ''}'.trim(),
+            sourceId: sourceId,
+            poster: _img(m['cover']),
+            category: names['${m['category_id']}'] ?? '',
+            rating: _rating(m['rating']),
+            year: _year(m['releaseDate'] ?? m['release_date'] ?? m['year']),
+            plot: '${m['plot'] ?? ''}'.trim(),
+          ),
+    ];
+  }
+
+  static VodDetails _details(Map? i) {
+    if (i == null) return const VodDetails();
+    String t(String k) {
+      final v = '${i[k] ?? ''}'.trim();
+      return v == 'null' ? '' : v;
+    }
+
+    final bd = i['backdrop_path'];
+    return VodDetails(
+      plot: t('plot').isNotEmpty ? t('plot') : t('description'),
+      genre: t('genre'),
+      cast: t('cast').isNotEmpty ? t('cast') : t('actors'),
+      director: t('director'),
+      release: t('releasedate').isNotEmpty ? t('releasedate') : t('releaseDate'),
+      duration: t('duration'),
+      backdrop: _img(bd is List && bd.isNotEmpty ? bd.first : bd),
+      rating: _rating(i['rating']),
+    );
+  }
+
+  Future<VodDetails> movieDetails(String id) async {
+    final j = await _get({'action': 'get_vod_info', 'vod_id': id});
+    return _details(j is Map && j['info'] is Map ? j['info'] as Map : null);
+  }
+
+  Future<SeriesDetails> seriesDetails(String id) async {
+    final j = await _get({'action': 'get_series_info', 'series_id': id});
+    if (j is! Map) return const SeriesDetails(VodDetails(), {});
+    final seasons = <int, List<Episode>>{};
+    final eps = j['episodes'];
+    final entries = eps is Map ? eps.values : (eps is List ? eps : const []);
+    for (final group in entries) {
+      if (group is! List) continue;
+      for (final e in group.whereType<Map>()) {
+        final info = e['info'] is Map ? e['info'] as Map : const {};
+        final season = int.tryParse('${e['season'] ?? ''}') ?? 1;
+        final ep = Episode(
+          id: '${e['id']}',
+          season: season,
+          number: int.tryParse('${e['episode_num'] ?? ''}') ?? 0,
+          title: '${e['title'] ?? ''}'.trim(),
+          ext: '${e['container_extension'] ?? 'mp4'}',
+          plot: '${info['plot'] ?? ''}'.trim(),
+          image: _img(info['movie_image']),
+          duration: '${info['duration'] ?? ''}'.trim(),
+        );
+        seasons.putIfAbsent(season, () => []).add(ep);
+      }
+    }
+    for (final l in seasons.values) {
+      l.sort((a, b) => a.number.compareTo(b.number));
+    }
+    return SeriesDetails(_details(j['info'] is Map ? j['info'] as Map : null), Map.fromEntries(seasons.entries.toList()..sort((a, b) => a.key.compareTo(b.key))));
+  }
+
+  String movieUrl(String id, String ext) =>
+      base.replace(pathSegments: ['movie', username, password, '$id.$ext']).toString();
+
+  String episodeUrl(String id, String ext) =>
+      base.replace(pathSegments: ['series', username, password, '$id.$ext']).toString();
 }

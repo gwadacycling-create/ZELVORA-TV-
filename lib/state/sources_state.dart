@@ -59,8 +59,11 @@ class SourcesNotifier extends AsyncNotifier<List<IptvSource>> {
 final channelCacheProvider = Provider<Map<String, List<Channel>>>((ref) => {});
 
 class ChannelsData {
-  const ChannelsData(this.channels, this.errors);
+  const ChannelsData(this.channels, this.errors, [this.vod = const []]);
   final List<Channel> channels;
+
+  /// Films / épisodes trouvés dans les playlists M3U (affichés dans Films).
+  final List<Channel> vod;
 
   /// Nom de la source -> message d'erreur.
   final Map<String, String> errors;
@@ -88,10 +91,13 @@ final channelsProvider = FutureProvider<ChannelsData>((ref) async {
       errors[s.name] = e.message;
     }
   }));
+  final vod = <Channel>[];
   for (final s in sources) {
-    all.addAll(cache[s.id] ?? const []);
+    for (final c in cache[s.id] ?? const <Channel>[]) {
+      (_isVod(c.url) ? vod : all).add(c);
+    }
   }
-  return ChannelsData(all, errors);
+  return ChannelsData(all, errors, vod);
 });
 
 /// Filtre de l'écran TV en direct.
@@ -123,3 +129,8 @@ final visibleChannelsProvider = Provider<List<Channel>>((ref) {
     return true;
   }).toList(growable: false);
 });
+
+bool _isVod(String url) {
+  final p = Uri.tryParse(url)?.path ?? url;
+  return p.contains('/movie/') || p.contains('/series/');
+}

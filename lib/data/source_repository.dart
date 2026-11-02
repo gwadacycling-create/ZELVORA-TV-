@@ -57,6 +57,7 @@ class SourceRepository {
   static const _key = 'zelvora.sources.v1';
   final SecureStore _store;
   final http.Client _client;
+  http.Client get httpClient => _client;
   final Future<String> Function(String path) _readFile;
 
   final _epgUrls = <String, String>{};

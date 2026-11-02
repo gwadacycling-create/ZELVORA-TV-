@@ -10,17 +10,19 @@ import 'package:zelvora_tv/domain/iptv_source.dart';
 
 import 'helpers.dart';
 
+http.Response _json(String body, int code) => http.Response.bytes(utf8.encode(body), code);
+
 /// Faux serveur Xtream (aucune donnée réelle).
 http.Client fakeXtream({String auth = '1', String status = 'Active', int? exp, List<String> formats = const ['m3u8', 'ts']}) =>
     MockClient((r) async {
       if (r.url.path != '/player_api.php') return http.Response('', 404);
       final q = r.url.queryParameters;
       if (q['username'] != 'demo' || q['password'] != 'secret') {
-        return http.Response(jsonEncode({'user_info': {'auth': 0}}), 200);
+        return _json(jsonEncode({'user_info': {'auth': 0}}), 200);
       }
       switch (q['action']) {
         case null:
-          return http.Response(
+          return _json(
               jsonEncode({
                 'user_info': {
                   'auth': int.parse(auth),
@@ -33,18 +35,48 @@ http.Client fakeXtream({String auth = '1', String status = 'Active', int? exp, L
               }),
               200);
         case 'get_live_categories':
-          return http.Response(
+          return _json(
               jsonEncode([
                 {'category_id': '1', 'category_name': 'Infos'},
                 {'category_id': '2', 'category_name': 'Sport'},
               ]),
               200);
         case 'get_live_streams':
-          return http.Response(
+          return _json(
               jsonEncode([
                 {'num': 1, 'name': 'Info Une', 'stream_id': 101, 'stream_icon': 'http://l/1.png', 'epg_channel_id': 'info1', 'category_id': '1'},
                 {'num': 2, 'name': 'Sport Deux', 'stream_id': 202, 'stream_icon': '', 'epg_channel_id': null, 'category_id': '2'},
               ]),
+              200);
+        case 'get_vod_categories':
+          return _json(jsonEncode([{'category_id': '5', 'category_name': 'Action'}, {'category_id': '6', 'category_name': 'Comédie'}]), 200);
+        case 'get_vod_streams':
+          return _json(
+              jsonEncode([
+                {'name': 'Film Démo (2024)', 'stream_id': 501, 'stream_icon': '', 'rating': '7.4', 'category_id': '5', 'container_extension': 'mkv'},
+                {'name': 'Comédie Test', 'stream_id': 502, 'stream_icon': null, 'rating': '', 'category_id': '6', 'container_extension': 'mp4'},
+              ]),
+              200);
+        case 'get_vod_info':
+          return _json(jsonEncode({'info': {'plot': 'Un film de démonstration.', 'genre': 'Action', 'duration': '01:45:00'}}), 200);
+        case 'get_series_categories':
+          return _json(jsonEncode([{'category_id': '9', 'category_name': 'Drames'}]), 200);
+        case 'get_series':
+          return _json(jsonEncode([{'name': 'Série Démo', 'series_id': 77, 'cover': '', 'plot': 'Une série.', 'category_id': '9'}]), 200);
+        case 'get_series_info':
+          return _json(
+              jsonEncode({
+                'info': {'plot': 'Une série de démonstration.'},
+                'episodes': {
+                  '1': [
+                    {'id': '901', 'episode_num': 1, 'title': 'Le début', 'container_extension': 'mp4', 'season': 1, 'info': {'plot': 'Premier épisode.'}},
+                    {'id': '902', 'episode_num': 2, 'title': 'La suite', 'container_extension': 'mp4', 'season': 1, 'info': {}},
+                  ],
+                  '2': [
+                    {'id': '911', 'episode_num': 1, 'title': 'Retour', 'container_extension': 'mkv', 'season': 2, 'info': {}},
+                  ],
+                },
+              }),
               200);
       }
       return http.Response('[]', 200);

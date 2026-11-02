@@ -13,8 +13,14 @@ import 'reconnect.dart';
 /// Lecture vidéo, isolée derrière une interface pour pouvoir être remplacée
 /// (tests, autre moteur) sans toucher aux écrans.
 abstract class Playback {
-  Future<void> play(Channel channel);
+  Future<void> play(Channel channel, {Duration? start});
   Future<void> togglePause();
+
+  /// Position et durée (films et séries).
+  Duration get position;
+  Duration get duration;
+  Stream<Duration> get positionStream;
+  Future<void> seek(Duration to);
 
   /// Volume de 0 à 100.
   Future<void> setVolume(double volume);
@@ -53,7 +59,7 @@ class MediaKitPlayback implements Playback {
     _player.stream.position.listen(_onPosition);
     _player.stream.buffering.listen(_buf.add);
     _player.stream.completed.listen((done) {
-      if (done) _recover('fin du flux envoyée par le serveur');
+      if (done && !(_current?.vod ?? false)) _recover('fin du flux envoyée par le serveur');
     });
     _player.stream.error.listen((e) {
       _journal('erreur moteur : ${maskUrls(e)}');
@@ -129,7 +135,7 @@ class MediaKitPlayback implements Playback {
   }
 
   void _check() {
-    if (_current == null || _userPaused || _reconnecting || _failed) return;
+    if (_current == null || _userPaused || _reconnecting || _failed || _player.state.completed) return;
     final limit = _policy.started ? stallLimit : startLimit;
     if (DateTime.now().difference(_lastProgress) > limit) {
       _recover(_policy.started ? 'image figée depuis ${limit.inSeconds} s' : 'aucune image après ${limit.inSeconds} s');
@@ -155,26 +161,26 @@ class MediaKitPlayback implements Playback {
     _buf.add(true);
     await Future<void>.delayed(delay);
     if (session != _session) return;
-    await _open(channel);
+    await _open(channel, start: channel.vod && _lastPos > Duration.zero ? _lastPos : null);
     _lastProgress = DateTime.now();
     _reconnecting = false;
   }
 
-  Future<void> _open(Channel channel) async {
+  Future<void> _open(Channel channel, {Duration? start}) async {
     await _ready;
     // Flux continus (.ts) : le moteur rouvre lui-même la connexion si le
     // serveur la coupe. Désactivé pour le HLS, qui gère ses segments.
     await _set(
       'stream-lavf-o',
-      isHls(channel.url)
-          ? 'reconnect=1,reconnect_on_network_error=1,reconnect_delay_max=4'
+      isHls(channel.url) || channel.vod
+          ? 'reconnect=1,reconnect_streamed=1,reconnect_on_network_error=1,reconnect_delay_max=4'
           : 'reconnect=1,reconnect_streamed=1,reconnect_at_eof=1,reconnect_on_network_error=1,reconnect_delay_max=4',
     );
-    await _player.open(Media(channel.url, httpHeaders: {'User-Agent': kIptvUserAgent, ...channel.headers}));
+    await _player.open(Media(channel.url, httpHeaders: {'User-Agent': kIptvUserAgent, ...channel.headers}, start: start));
   }
 
   @override
-  Future<void> play(Channel channel) {
+  Future<void> play(Channel channel, {Duration? start}) {
     _session++;
     _current = channel;
     _policy.reset();
@@ -183,7 +189,22 @@ class MediaKitPlayback implements Playback {
     _failed = false;
     _lastProgress = DateTime.now();
     _journal('ouverture de « ${channel.name} » (${isHls(channel.url) ? 'HLS' : 'flux continu'}, ${maskUrls(channel.url)})');
-    return _open(channel);
+    return _open(channel, start: start);
+  }
+
+  @override
+  Duration get position => _player.state.position;
+
+  @override
+  Duration get duration => _player.state.duration;
+
+  @override
+  Stream<Duration> get positionStream => _player.stream.position;
+
+  @override
+  Future<void> seek(Duration to) {
+    _lastProgress = DateTime.now();
+    return _player.seek(to);
   }
 
   @override
@@ -287,10 +308,10 @@ class CurrentChannelNotifier extends Notifier<Channel?> {
   @override
   Channel? build() => null;
 
-  Future<void> play(Channel c) async {
+  Future<void> play(Channel c, {Duration? start}) async {
     state = c;
-    ref.read(historyProvider.notifier).add(c);
-    await ref.read(playbackProvider).play(c);
+    if (!c.vod) ref.read(historyProvider.notifier).add(c);
+    await ref.read(playbackProvider).play(c, start: start);
   }
 
   Future<void> stop() async {
