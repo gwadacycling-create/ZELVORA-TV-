@@ -16,6 +16,16 @@ abstract class Playback {
   Future<void> play(Channel channel, {Duration? start});
   Future<void> togglePause();
 
+  /// Pistes audio et sous-titres proposées par le flux.
+  List<TrackOption> get audioTracks;
+  List<TrackOption> get subtitleTracks;
+  String? get currentAudio;
+  String? get currentSubtitle;
+  Future<void> selectAudio(String id);
+
+  /// 'no' désactive les sous-titres.
+  Future<void> selectSubtitle(String id);
+
   /// Position et durée (films et séries).
   Duration get position;
   Duration get duration;
@@ -35,6 +45,33 @@ abstract class Playback {
   Future<Map<String, String>> diagnostics();
   void dispose();
 }
+
+class TrackOption {
+  const TrackOption(this.id, this.label);
+  final String id;
+  final String label;
+}
+
+String _trackLabel(String id, String? title, String? lang, int n) {
+  final parts = [
+    if (lang != null && lang.isNotEmpty) _langName(lang),
+    if (title != null && title.isNotEmpty && title != lang) title,
+  ];
+  return parts.isEmpty ? 'Piste $n' : parts.join(' · ');
+}
+
+String _langName(String code) => switch (code.toLowerCase()) {
+      'fr' || 'fre' || 'fra' => 'Français',
+      'en' || 'eng' => 'Anglais',
+      'es' || 'spa' => 'Espagnol',
+      'de' || 'ger' || 'deu' => 'Allemand',
+      'it' || 'ita' => 'Italien',
+      'pt' || 'por' => 'Portugais',
+      'ar' || 'ara' => 'Arabe',
+      'tr' || 'tur' => 'Turc',
+      'nl' || 'dut' || 'nld' => 'Néerlandais',
+      _ => code,
+    };
 
 /// Mode compatibilité vidéo : désactive l'accélération matérielle
 /// (utile si l'image reste noire sur certaines cartes graphiques).
@@ -112,6 +149,9 @@ class MediaKitPlayback implements Playback {
     await _set('demuxer-max-back-bytes', '16MiB');
     await _set('demuxer-readahead-secs', '20');
     await _set('hls-bitrate', 'max');
+    // Langue préférée : français, sinon anglais.
+    await _set('alang', 'fr,fre,fra,en,eng');
+    await _set('slang', 'fr,fre,fra');
   }
 
   void _journal(String msg) {
@@ -190,6 +230,43 @@ class MediaKitPlayback implements Playback {
     _lastProgress = DateTime.now();
     _journal('ouverture de « ${channel.name} » (${isHls(channel.url) ? 'HLS' : 'flux continu'}, ${maskUrls(channel.url)})');
     return _open(channel, start: start);
+  }
+
+  @override
+  List<TrackOption> get audioTracks {
+    var n = 0;
+    return [
+      for (final t in _player.state.tracks.audio)
+        if (t.id != 'auto' && t.id != 'no') TrackOption(t.id, _trackLabel(t.id, t.title, t.language, ++n)),
+    ];
+  }
+
+  @override
+  List<TrackOption> get subtitleTracks {
+    var n = 0;
+    return [
+      for (final t in _player.state.tracks.subtitle)
+        if (t.id != 'auto' && t.id != 'no') TrackOption(t.id, _trackLabel(t.id, t.title, t.language, ++n)),
+    ];
+  }
+
+  @override
+  String? get currentAudio => _player.state.track.audio.id;
+
+  @override
+  String? get currentSubtitle => _player.state.track.subtitle.id;
+
+  @override
+  Future<void> selectAudio(String id) async {
+    final t = _player.state.tracks.audio.where((e) => e.id == id).firstOrNull;
+    if (t != null) await _player.setAudioTrack(t);
+  }
+
+  @override
+  Future<void> selectSubtitle(String id) async {
+    if (id == 'no') return _player.setSubtitleTrack(SubtitleTrack.no());
+    final t = _player.state.tracks.subtitle.where((e) => e.id == id).firstOrNull;
+    if (t != null) await _player.setSubtitleTrack(t);
   }
 
   @override

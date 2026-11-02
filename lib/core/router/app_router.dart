@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../features/search/search_page.dart';
 import '../../features/favorites/favorites_page.dart';
 import '../../features/guide/guide_page.dart';
 import '../../features/history/history_page.dart';
@@ -47,6 +48,7 @@ final appRouterProvider = Provider<GoRouter>((ref) {
               path: d.path,
               pageBuilder: (context, state) => NoTransitionPage(child: d.builder(context)),
             ),
+          GoRoute(path: '/search', pageBuilder: (context, state) => const NoTransitionPage(child: SearchPage())),
         ],
       ),
     ],
