@@ -39,5 +39,7 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
   }
 
   ::CoUninitialize();
-  return EXIT_SUCCESS;
+  // Fenêtre fermée : on termine tout de suite le programme, y compris le
+  // moteur vidéo qui, sinon, peut continuer à jouer le son en arrière-plan.
+  ::ExitProcess(EXIT_SUCCESS);
 }
