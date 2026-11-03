@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../core/freeze_monitor.dart';
 import '../../core/router/app_router.dart';
 import '../../core/theme/app_theme.dart';
 import '../update/update_banner.dart';
@@ -22,6 +23,7 @@ class _AppShellState extends State<AppShell> {
   Widget build(BuildContext context) {
     // Touche Retour (télécommande, téléphone) : revient à l'Accueil au lieu
     // de quitter l'application. Depuis l'Accueil, elle quitte normalement.
+    FreezeMonitor.instance.context = 'page ${widget.location}';
     return PopScope(
       canPop: widget.location == '/',
       onPopInvokedWithResult: (didPop, _) {

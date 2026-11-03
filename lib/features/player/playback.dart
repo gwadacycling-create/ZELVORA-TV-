@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
 
+import '../../core/freeze_monitor.dart';
 import '../../data/source_repository.dart' show kIptvUserAgent;
 import '../../domain/channel.dart';
 import '../../state/library_state.dart';
@@ -119,6 +120,8 @@ class MediaKitPlayback implements Playback {
   String _lastLog = '';
 
   Channel? _current;
+  String? _lavf;
+  DateTime _openedAt = DateTime.now();
   int _session = 0;
   bool _userPaused = false;
   bool _reconnecting = false;
@@ -149,6 +152,9 @@ class MediaKitPlayback implements Playback {
     await _set('demuxer-max-back-bytes', '16MiB');
     await _set('demuxer-readahead-secs', '20');
     await _set('hls-bitrate', 'max');
+    // Démarrage plus rapide des chaînes : le moteur analyse 1 s de flux au
+    // lieu de 5 s (sur un direct, cette analyse se faisait au rythme réel).
+    await _set('demuxer-lavf-analyzeduration', '1');
     // Langue préférée : français, sinon anglais.
     await _set('alang', 'fr,fre,fra,en,eng');
     await _set('slang', 'fr,fre,fra');
@@ -168,7 +174,9 @@ class MediaKitPlayback implements Playback {
     if (advancing) {
       _lastProgress = DateTime.now();
       if (_current != null && !_reconnecting) {
-        if (!_policy.started) _journal('lecture démarrée');
+        if (!_policy.started) {
+          _journal('lecture démarrée en ${(DateTime.now().difference(_openedAt).inMilliseconds / 1000).toStringAsFixed(1)} s');
+        }
         _policy.onProgress(_lastProgress);
       }
     }
@@ -210,12 +218,19 @@ class MediaKitPlayback implements Playback {
     await _ready;
     // Flux continus (.ts) : le moteur rouvre lui-même la connexion si le
     // serveur la coupe. Désactivé pour le HLS, qui gère ses segments.
-    await _set(
-      'stream-lavf-o',
-      isHls(channel.url) || channel.vod
-          ? 'reconnect=1,reconnect_streamed=1,reconnect_on_network_error=1,reconnect_delay_max=4'
-          : 'reconnect=1,reconnect_streamed=1,reconnect_at_eof=1,reconnect_on_network_error=1,reconnect_delay_max=4',
-    );
+    final lavf = isHls(channel.url) || channel.vod
+        ? 'reconnect=1,reconnect_streamed=1,reconnect_on_network_error=1,reconnect_delay_max=4'
+        : 'reconnect=1,reconnect_streamed=1,reconnect_at_eof=1,reconnect_on_network_error=1,reconnect_delay_max=4';
+    // Ce réglage est appliqué directement (sans file d'attente) : s'il est envoyé
+    // pendant que le moteur ferme encore la chaîne précédente, tout l'écran
+    // reste bloqué plusieurs secondes. On ne l'envoie donc que s'il change,
+    // et seulement une fois l'ancienne chaîne arrêtée.
+    if (lavf != _lavf) {
+      await _player.stop();
+      await _set('stream-lavf-o', lavf);
+      _lavf = lavf;
+    }
+    _openedAt = DateTime.now();
     await _player.open(Media(channel.url, httpHeaders: {'User-Agent': kIptvUserAgent, ...channel.headers}, start: start));
   }
 
@@ -228,6 +243,7 @@ class MediaKitPlayback implements Playback {
     _reconnecting = false;
     _failed = false;
     _lastProgress = DateTime.now();
+    FreezeMonitor.instance.context = 'ouverture de « ${channel.name} »';
     _journal('ouverture de « ${channel.name} » (${isHls(channel.url) ? 'HLS' : 'flux continu'}, ${maskUrls(channel.url)})');
     return _open(channel, start: start);
   }
@@ -350,6 +366,7 @@ class MediaKitPlayback implements Playback {
       'Reconnexions': '${_policy.total}',
       'Dernier message': _lastLog.isEmpty ? '—' : _lastLog,
       'Journal': _log.isEmpty ? '—' : _log.reversed.take(6).join('\n'),
+      'Blocages écran': FreezeMonitor.instance.events.isEmpty ? 'aucun' : FreezeMonitor.instance.events.reversed.take(5).join('\n'),
     };
   }
 
